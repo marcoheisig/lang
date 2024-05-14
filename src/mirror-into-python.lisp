@@ -7,14 +7,6 @@
 Each lispobj must have a finalizer attached that deletes its entry in this
 table so that the garbage collector may eventually clean up the Lisp object.")
 
-(defparameter *lispobj-lisp-objects*
-  (make-hash-table)
-  "A hash table mapping from lispobj addresses to their corresponding Lisp
-objects.
-
-This table is necessary because we cannot store references to Lisp objects on
-the Python heap.")
-
 (defun make-class-lispobj (class metaclass-lispobj superclass-lispobjs)
   (let* ((name (class-lispobj-name class))
          (bases (apply #'pytuple superclass-lispobjs))
@@ -24,7 +16,7 @@ the Python heap.")
       (error "Failed to mirror the class ~S into Python." class))
     (setf (gethash class *lispobj-table*)
           lispobj)
-    (setf (gethash lispobj *lispobj-lisp-objects*)
+    (setf (gethash lispobj *python-object-table*)
           class)
     (pyobject-decref dict)
     (pyobject-decref bases)
@@ -46,7 +38,7 @@ the Python heap.")
       (error "Failed to mirror the object ~S into Python." object))
     (setf (gethash object *lispobj-table*)
           lispobj)
-    (setf (gethash lispobj *lispobj-lisp-objects*)
+    (setf (gethash lispobj *python-object-table*)
           object)
     lispobj))
 
@@ -71,6 +63,10 @@ the Python heap.")
     ((object t))
   (or (gethash object *lispobj-table*)
       (call-next-method)))
+
+(defmethod mirror-into-python
+    ((python-object python-object))
+  (python-object-pyobject python-object))
 
 (defmethod mirror-into-python ((class class))
   ;; In Python, the metaclass of a derived class must be a (non-strict)

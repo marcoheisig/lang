@@ -3,9 +3,9 @@
 (defparameter *python-object-table*
   (make-hash-table :weakness :value)
   "A hash table mapping from integers that are PyObject addresses to the
-corresponding Python objects.
+corresponding Lisp objects.
 
-Each Python object must have a finalizer that decreases the reference count of
+Each Lisp object should have a finalizer that decreases the reference count of
 its corresponding PyObject.
 
 Use weak references for the values, because we can recreate the Python object
