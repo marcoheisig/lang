@@ -1,0 +1,9 @@
+*
+!/COPYING
+!/.gitignore
+!/src
+
+# Source Code
+!*.lisp
+!*.asd
+!*.py
