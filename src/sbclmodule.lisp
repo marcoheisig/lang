@@ -26,22 +26,6 @@
 (defvar *python-thread* (bordeaux-threads-2:current-thread)
   "The one Lisp thread that is allowed to mutate Python objects.")
 
-(declaim (type (unsigned-byte 16) *pyobject-type-offset* *pyobject-refcount-offset*))
-(defparameter *pyobject-type-offset*
-  ;; We know that Python's type object is its own type, so we can determine the
-  ;; offset by linear search.
-  (loop for offset from 0 to 256 do
-    (when (cffi:pointer-eq
-           (cffi:mem-ref *type-pyobject* :pointer offset)
-           *type-pyobject*)
-      (return offset)))
-  "The byte offset from the start of a Python object to the slot holding its type.")
-
-(defparameter *pyobject-refcount-offset*
-  (- *pyobject-type-offset* 8))
-
-(declaim (bordeaux-threads:lock *lisp-from-python-lock* *python-from-lisp-lock*)) ;; TODO
-
 (declaim (hash-table *lisp-from-python-table* *python-from-lisp-table*))
 
 (defparameter *lisp-from-python-table*
@@ -56,77 +40,28 @@ corresponding PyObject wrappers.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Foreign Functions
+;;; Low-level Functions
 
-(defun pyobject-id (pyobject)
-  (cffi:pointer-address pyobject))
-
-(defun pyobject-pytype (pyobject)
-  (declare (cffi:foreign-pointer pyobject))
-  (cffi:mem-ref pyobject :pointer *pyobject-type-offset*))
-
-(defun pyobject-refcount (pyobject)
-  (declare (cffi:foreign-pointer pyobject))
-  (cffi:mem-ref pyobject :size *pyobject-refcount-offset*))
-
-(defun string-from-pyobject (pyobject)
-  (declare (cffi:foreign-pointer pyobject))
-  (cffi:with-foreign-object (size-pointer :size)
-    (let* ((char-pointer (pyunicode-as-utf8-string pyobject size-pointer))
-           (nbytes (if (cffi:null-pointer-p char-pointer)
-                     (error "Not a Python string: ~A." (lisp-from-python pyobject))
-                     (cffi:mem-ref size-pointer :size)))
-           (octets (make-array nbytes :element-type '(unsigned-byte 8))))
-      (loop for index below nbytes do
-        (setf (aref octets index)
-              (cffi:mem-aref char-pointer :uchar index)))
-      (sb-ext:octets-to-string octets :external-format :utf-8))))
-
-(defun pyobject-from-string (string)
-  (declare (string string))
-  (let* ((octets (sb-ext:string-to-octets string :external-format :utf-8))
-         (nbytes (length octets)))
-    (cffi:with-foreign-object (errors :pointer)
-      (cffi:with-foreign-object (char-pointer :uchar nbytes)
-        (loop for index below nbytes do
-          (setf (cffi:mem-ref char-pointer :uchar index)
-                (aref octets index)))
-        (pyunicode-decode-utf8 char-pointer nbytes errors)))))
+(defun pystr (string-designator)
+  (etypecase string-designator
+    (python:object
+     (python-object-pointer string-designator))
+    (string
+     (pyobject-from-string string-designator))
+    (symbol
+     (pyobject-from-string (string-downcase (symbol-name string-designator))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Classes
 
-(defclass pyobject-mixin ()
-  ((%pointer
-    :initarg :pointer
-    :initform (alexandria:required-argument :pointer)
-    :type cffi:foreign-pointer
-    :reader python-object-pointer)))
-
-(defmethod shared-initialize :after
-    ((instance pyobject-mixin)
-     (slot-names t)
-     &key pointer &allow-other-keys)
-  (alexandria:ensure-gethash
-   (cffi:pointer-address pointer)
-   *lisp-from-python-table*
-   (register-pyobject-finalizer pointer instance)))
-
-(defun register-pyobject-finalizer (pyobject object)
-  (pyobject-incref pyobject)
-  (trivial-garbage:finalize
-   object
-   (lambda ()
-     ;; TODO ensure we are in the main thread.
-     (pyobject-decref pyobject))))
-
-(defclass python-class (pyobject-mixin standard-class)
-  ())
+(defclass python-class (pyobject-mixin funcallable-standard-class)
+  ()
+  (:metaclass funcallable-standard-class))
 
 (defmethod validate-superclass
     ((class python-class)
-     (superclass standard-class))
+     (superclass funcallable-standard-class))
   t)
 
 (defclass python:type (python-class)
@@ -136,7 +71,7 @@ corresponding PyObject wrappers.")
 
 (defmethod validate-superclass
     ((class python:type)
-     (superclass standard-class))
+     (superclass funcallable-standard-class))
   t)
 
 (defclass python:object (pyobject-mixin)
@@ -155,7 +90,7 @@ corresponding PyObject wrappers.")
 
 (defmethod python-object-pointer ((object t))
   "Return a pointer to a Python object that mirrors the supplied Lisp object."
-  (python-from-lisp object))
+  (error "Not a Python object: ~S" object))
 
 (defmethod python-object-id ((object t))
   "Return a pointer to a Python object that mirrors the supplied Lisp object."
@@ -207,39 +142,38 @@ corresponding PyObject wrappers.")
 ;;;
 ;;; Mirror Object Machinery
 
-(declaim (ftype (function (cffi:foreign-pointer)
-                          (values t &optional))
-                lisp-from-python))
-
-(defun lisp-from-python (pyobject)
-  "Return the Lisp object corresponding to the supplied PyObject pointer."
-  (declare (cffi:foreign-pointer pyobject))
-  (multiple-value-bind (value presentp)
-      (gethash (cffi:pointer-address pyobject) *lisp-from-python-table*)
-    (if presentp
-        value
-        (let* ((pytype (pyobject-pytype pyobject))
-               (class (lisp-from-python pytype)))
-          (if (pyobject-subtypep pytype *type-pyobject*)
-              ;; Create a type.
-              (let* ((name (pytype-name pyobject))
-                     (direct-superclasses (pytype-direct-superclasses pyobject)))
-                (make-instance class
-                  :name name
-                  :direct-superclasses direct-superclasses
-                  :pointer pyobject))
-              ;; Create an instance.
-              (make-instance class
-                :pointer pyobject))))))
-
-(defun pytype-name (pytype)
-  (let ((pyname (pyobject-getattr-string pytype "__name__")))
-    (intern
-     (if (cffi:null-pointer-p pyname)
-         (format nil "UNNAMED-TYPE-~X" (random most-positive-fixnum))
-         (string-upcase (string-from-pyobject pyname)))
-     ;; TODO find the correct module
-     "PYTHON")))
+(defun lispify-name (name)
+  "Turn Python identifiers like FooBar_baz into FOO-BAR-BAZ.  As a second value,
+returns one of the keywords :external or :internal to describe the intended
+visibility of that Lisp symbol."
+  (declare (string name))
+  (let* ((ntotal (length name))
+         (nleading (or (position #\_ name :test-not #'char=) ntotal)))
+    (values
+     (with-output-to-string (stream)
+       (labels ((emit (char) (write-char char stream)))
+         (let ((position 0))
+           (loop while (< position ntotal) do
+             (let ((char (schar name position)))
+               (cond ((upper-case-p char)
+                      (unless (= position nleading)
+                        (emit #\-))
+                      (emit char)
+                      (incf position)
+                      (loop while (< position ntotal) do
+                        (let ((char (schar name position)))
+                          (if (upper-case-p char)
+                              (progn (emit char) (incf position))
+                              (loop-finish)))))
+                     ((char= char #\_)
+                      (emit #\-)
+                      (incf position))
+                     (t
+                      (emit (char-upcase char))
+                      (incf position))))))))
+     (if (zerop nleading)
+         :external
+         :internal))))
 
 (defun pytype-direct-superclasses (pyobject)
   (declare (cffi:foreign-pointer pyobject))
@@ -256,6 +190,12 @@ corresponding PyObject wrappers.")
 
 (defun python-from-lisp (object)
   "Return the PyObject pointer corresponding to the supplied Lisp object."
+  (when (typep object 'python:object)
+    (return-from python-from-lisp
+      (python-object-pointer object)))
+  (when (typep object 'integer)
+    (return-from python-from-lisp
+      (pylong-from-long object)))
   ;; Allocate
   (break "TODO")
   ;; Add finalizer

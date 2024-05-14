@@ -1,14 +1,20 @@
 (in-package #:sbclmodule)
 
-(defun python:import (module-name &optional (package-name (string-upcase module-name)))
-  (declare (string module-name package-name))
-  ;; TODO Also define corresponding Lisp package.
+(defvar *python-package-modules* (make-hash-table :test #'eq)
+  "A hash table that maps python packages to their modules.")
+
+(defmacro package-module (package)
+  `(values
+    (gethash ,package *python-package-modules*)))
+
+(defun python:import (module-name)
+  (declare (string module-name))
   (lisp-from-python
    (pyimport-getmodule
     (pyobject-from-string module-name))))
 
-(defparameter *builtin*
-  (python:import "__builtin__"))
+(defparameter *builtins*
+  (python:import "builtins"))
 
 #+(or)
 (defun python:call (callable &rest arguments)

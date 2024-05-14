@@ -11,6 +11,14 @@
 
   :components
   ((:file "packages")
-   (:file "pyapi")
+   (:file "foreign")
+   (:file "low-level")
+   (:file "mirror-objects")
+   #+(or)
    (:file "sbclmodule")
+   #+(or)
+   (:file "lispify")
+   #+(or)
+   (:file "pythonize")
+   #+(or)
    (:file "python")))
