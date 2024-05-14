@@ -1,48 +1,9 @@
-#+TITLE: SBCL as a Python module
+#+TITLE: Ouroboros - Python and Lisp Combined
 #+AUTHOR: Marco Heisig
 
-(Possible) successor of cl4py and py4cl.
+Ouroboros is both a Lisp system and a Python module that turns either language
+into a combination of both.
 
-* Problems with cl4py and py4cl
+* Installation
 
-- Slow, serialization-based protocol
-- Fragile use of pipes
-- No reference semantics
-
-* Design Decisions
-
-- Provide Common Lisp as a Python module
-- Create isomorphic class hierarchy in Lisp's and Python's MOP
-- Ensure that Lisp can call Python functions and vice versa
-- Use Lisp as the main implementation language
-- Only support SBCL and cpython
-- Only allow one Lisp thread to mutate Python objects (GIL!)
-
-* Open Questions
-
-** Turning Lisp code into a Python module
-- FAILED Use elftool to create a shared library with entry point for Python.
-- WIP    Use ctypes to open libsbcl.so to load a core
-
-** Cross-language garbage collection
-How to collect more than one Lisp/Python pair per GC cycle.
-
-** Implement a non-standard PYTHON-CLASS (without hacking SBCL)
-Custom allocate-instance?
-
-* Pending Tasks
-
-- [ ] Python str <-> Lisp string (Unicode!)
-- [ ] Python int <-> Lisp integer
-- [ ] Class and Metaclass wrappers -> Isomorphic class hierarchies
-  - [ ] decref finalizer for Lisp objects with Python equivalent
-  - [ ] remhash finalizer for Python objects with Lisp equivalent
-- [ ] Callable Objects
-- [ ] print-object for Python objects
-- [ ] Dependent Maintenance Protocol for Keeping Wrappers in Sync
-- [ ] Lisp built-in dunder methods
-- [ ] Cross-language Garbage Collection (Py_DECREF might free references to Lisp objects)
-- [ ] Use SBCL's Sequence Protocol on Python lists, tuples, and whatnot
-- [ ] Error handling - show lisp stack traces
-- [ ] Turn all Lisp packages into attributes of the sbcl module
-
+Requires both libpyhton3.11 or later and libsbcl in your library path.

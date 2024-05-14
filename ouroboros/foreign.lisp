@@ -1,8 +1,11 @@
-(in-package #:sbclmodule)
+(in-package #:ouroboros)
 
 ;;; Py
 
 (cffi:defcfun ("Py_Initialize" python-initialize) :void)
+
+(cffi:defcfun ("Py_InitializeEx" python-initialize-ex) :void
+  (initsigs :bool))
 
 (cffi:defcfun ("Py_IsInitialized" python-initializedp) :bool)
 
@@ -52,6 +55,12 @@
 (cffi:defcfun ("PyObject_Str" pyobject-str) :pointer
   (pyobject :pointer))
 
+(cffi:defcfun ("PyObject_ASCII" pyobject-ascii) :pointer
+  (pyobject :pointer))
+
+(cffi:defcfun ("PyObject_Bytes" pyobject-bytes) :pointer
+  (pyobject :pointer))
+
 (cffi:defcfun ("PyObject_IsTrue" pyobject-truep) :bool
   (pyobject :pointer))
 
@@ -67,6 +76,9 @@
 ;;; PyErr
 
 (cffi:defcfun ("PyErr_Print" pyerr-print) :void)
+
+(cffi:defcfun ("PyErr_WriteUnraisable" pyerr-write-unraisable) :void
+  (pyobject :pointer))
 
 (cffi:defcfun ("PyErr_SetNone" pyerr-set-none) :void
   (pyobject :pointer))
@@ -88,6 +100,8 @@
   (a :pointer)
   (b :pointer)
   (c :pointer))
+
+(cffi:defcfun ("PyErr_CheckSignals" pyerr-check-signals) :void)
 
 ;;; PyCallable
 
@@ -241,13 +255,11 @@
   (t (:or (:default "libpython3.11")
           (:default "libpython3.11"))))
 
-(cffi:use-foreign-library libpython)
+(unless (cffi:foreign-symbol-pointer "Py_IsInitialized")
+  (cffi:use-foreign-library libpython))
 
-(defun initialize-python ()
-  (unless (python-initializedp)
-    (python-initialize)))
-
-(initialize-python)
+(unless (python-initializedp)
+  (python-initialize-ex nil))
 
 ;;; Pointers and Slots
 

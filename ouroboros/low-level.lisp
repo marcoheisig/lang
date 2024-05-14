@@ -1,4 +1,14 @@
-(in-package #:sbclmodule)
+(in-package #:ouroboros)
+
+(defun call-with-python-error-handling (thunk)
+  (unwind-protect (funcall thunk)
+    (pyerr-check-signals)
+    (let ((err (pyerr-occurred)))
+      (unless (cffi:null-pointer-p err)
+        (pyerr-write-unraisable err)))))
+
+(defmacro with-python-error-handling (&body body)
+  `(call-with-python-error-handling (lambda () ,@body)))
 
 (defun pyobject-typep (pyobject pytype)
   (pytype-subtypep (pyobject-pytype pyobject) pytype))
@@ -20,7 +30,9 @@ Doesn't increase the reference count of any of the supplied PyObjects."
   (unless (pyobject-typep pyobject *unicode-pyobject*)
     (error "Not a PyUnicode object: ~A." pyobject))
   (cffi:with-foreign-object (size-pointer :size)
-    (let* ((char-pointer (pyunicode-as-utf8-string pyobject size-pointer))
+    (let* ((char-pointer
+             (with-python-error-handling
+               (pyunicode-as-utf8-string pyobject size-pointer)))
            (nbytes (if (cffi:null-pointer-p char-pointer)
                        (error "Failed to convert string from Python to Lisp.")
                        (cffi:mem-ref size-pointer :size)))
@@ -40,15 +52,19 @@ Doesn't increase the reference count of any of the supplied PyObjects."
         (loop for index below nbytes do
           (setf (cffi:mem-ref char-pointer :uchar index)
                 (aref octets index)))
-        (pyunicode-decode-utf8 char-pointer nbytes errors)))))
+        (let ((pyobject
+                (with-python-error-handling
+                  (pyunicode-decode-utf8 char-pointer nbytes errors))))
+          (when (cffi:null-pointer-p pyobject)
+            (error "Failed to turn ~S into a PyUnicode object." string))
+          (unless (pyobject-typep pyobject *unicode-pyobject*)
+            (error "Not a PyUnicode object: ~S" pyobject))
+          pyobject)))))
 
 (defun pyprint (pyobject &optional (stream t))
   "Print the string representation of the supplied PyObject."
-  (let ((repr (pyobject-repr pyobject)))
-    (princ
-     (unwind-protect (string-from-pyobject repr)
-       (pyobject-decref repr))
-     stream))
+  (let ((repr (with-python-error-handling (pyobject-repr pyobject))))
+    (princ (string-from-pyobject repr) stream))
   pyobject)
 
 ;;; Calling Python Functions
@@ -60,7 +76,8 @@ Doesn't increase the reference count of any of the supplied PyObjects."
     (loop for position below argc for pyobject in pyobjects do
       (setf (aref argv position)
             (cffi:pointer-address pyobject)))
-    (pyobject-vectorcall pycallable (sb-sys:vector-sap argv) argc (cffi:null-pointer))))
+    (with-python-error-handling
+      (pyobject-vectorcall pycallable (sb-sys:vector-sap argv) argc (cffi:null-pointer)))))
 
 #+(or)
 (define-compiler-macro pycall

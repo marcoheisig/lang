@@ -1,4 +1,4 @@
-(in-package #:sbclmodule)
+(in-package #:ouroboros)
 
 (defparameter *lispobj-table*
   (make-hash-table)

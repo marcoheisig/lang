@@ -1,4 +1,4 @@
-(in-package #:sbclmodule)
+(in-package #:ouroboros)
 
 (defparameter *python-object-table*
   (make-hash-table :weakness :value)
@@ -56,16 +56,6 @@ at any time if necessary.")
             (make-instance class
               :pointer pyobject)))))
 
-(defun pytype-direct-superclasses (pyobject)
-  (declare (cffi:foreign-pointer pyobject))
-  (let ((bases (pyobject-getattr-string pyobject "__bases__")))
-    (if (cffi:null-pointer-p bases)
-        (list (find-class 'python:object))
-         (loop for position below (pytuple-size bases)
-               collect
-               (mirror-into-lisp
-                (pytuple-getitem bases position))))))
-
 (defun pytype-name-symbol (pytype)
   (let ((pyname (pytype-qualified-name pytype)))
     (if (cffi:null-pointer-p pyname)
@@ -88,3 +78,13 @@ at any time if necessary.")
             (when (eq visibility :external)
               (export lisp-symbol "PYTHON"))
             lisp-symbol)))))
+
+(defun pytype-direct-superclasses (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (let ((bases (pyobject-getattr-string pyobject "__bases__")))
+    (when (cffi:null-pointer-p bases)
+      (error "Couldn't determine the bases of ~S." pyobject))
+    (loop for position below (pytuple-size bases)
+          collect
+          (mirror-into-lisp
+           (pytuple-getitem bases position)))))

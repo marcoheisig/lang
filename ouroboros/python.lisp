@@ -1,4 +1,6 @@
-(in-package #:sbclmodule)
+(in-package #:ouroboros)
+
+;;; Define a Python package that works
 
 (defvar *python-package-modules* (make-hash-table :test #'eq)
   "A hash table that maps python packages to their modules.")

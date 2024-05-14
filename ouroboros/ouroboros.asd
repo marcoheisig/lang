@@ -1,25 +1,20 @@
-(defsystem :sbclmodule
+(defsystem :ouroboros
   :description "Bringing SBCL to Python and vice versa."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
   :depends-on
-  ("bordeaux-threads"
+  ("alexandria"
+   "bordeaux-threads"
    "cffi"
    "closer-mop"
-   "alexandria"
    "trivial-garbage")
 
   :components
-  ((:file "packages")
+  ((:static-file "gencore")
+   (:file "packages")
    (:file "foreign")
    (:file "low-level")
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
-   #+(or)
-   (:file "sbclmodule")
-   #+(or)
    (:file "lispify")
-   #+(or)
-   (:file "pythonize")
-   #+(or)
-   (:file "python")))
+   (:file "pythonize")))
