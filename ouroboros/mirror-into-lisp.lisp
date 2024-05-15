@@ -20,6 +20,13 @@ at any time if necessary.")
   (:documentation
    "An object of the Python programming language."))
 
+(defmethod print-object ((python-object python-object) stream)
+  (format stream "#<~A ~A>"
+          (class-name (class-of python-object))
+          (let ((pyrepr (pyobject-repr (python-object-pyobject python-object))))
+            (unwind-protect (string-from-pyobject pyrepr)
+              (pyobject-decref pyrepr)))))
+
 (defmethod shared-initialize :after
     ((python-object python-object)
      (slot-names t)
@@ -38,6 +45,38 @@ at any time if necessary.")
      ;; TODO ensure we are in the main thread.
      (pyobject-decref pyobject))))
 
+(defclass python-class (python-object standard-class)
+  ())
+
+(defmethod validate-superclass
+    ((class python-class)
+     (superclass standard-class))
+  t)
+
+(defclass python:|type| (python-class)
+  ()
+  (:metaclass python-class)
+  (:pyobject . #.*type-pyobject*))
+
+(defmethod validate-superclass
+    ((class python:|type|)
+     (superclass standard-class))
+  t)
+
+(defclass python:|object| (python-object)
+  ()
+  (:metaclass python:|type|)
+  (:pyobject . #.*object-pyobject*))
+
+(defclass python:|None| (python:|object|)
+  ()
+  (:metaclass python:|type|)
+  (:pyobject . #.*none-pyobject*))
+
+;; Treat null pointers as None.
+(setf (gethash 0 *python-object-table*)
+      (find-class 'python:|None|))
+
 (defun mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
   (declare (pyobject pyobject))
@@ -51,10 +90,10 @@ at any time if necessary.")
               (make-instance class
                 :name name
                 :direct-superclasses direct-superclasses
-                :pointer pyobject))
+                :pyobject pyobject))
             ;; Create an instance.
             (make-instance class
-              :pointer pyobject)))))
+              :pyobject pyobject)))))
 
 (defun pytype-name-symbol (pytype)
   (let ((pyname (pytype-qualified-name pytype)))
@@ -71,7 +110,7 @@ at any time if necessary.")
                        (string-from-pyobject pymodule-name)))
                  (symbol-name
                    (if (or (not module-name)
-                           (string= module-name '#:builtins))
+                           (string= module-name "builtins"))
                        lisp-name
                        (concatenate 'string module-name "." lisp-name)))
                  (lisp-symbol (intern symbol-name "PYTHON")))

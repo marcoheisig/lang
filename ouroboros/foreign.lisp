@@ -278,6 +278,9 @@
 (defparameter *object-pyobject*
   (cffi:foreign-symbol-pointer "PyBaseObject_Type"))
 
+(defparameter *none-pyobject*
+  (cffi:foreign-symbol-pointer "_Py_NoneStruct"))
+
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
 

@@ -16,7 +16,7 @@ table so that the garbage collector may eventually clean up the Lisp object.")
       (error "Failed to mirror the class ~S into Python." class))
     (setf (gethash class *lispobj-table*)
           lispobj)
-    (setf (gethash lispobj *python-object-table*)
+    (setf (gethash (pyobject-address lispobj) *python-object-table*)
           class)
     (pyobject-decref dict)
     (pyobject-decref bases)
@@ -26,11 +26,15 @@ table so that the garbage collector may eventually clean up the Lisp object.")
 (defun class-lispobj-name (class)
   (let* ((symbol (class-name class))
          (pname (package-name (symbol-package symbol)))
-         (sname (symbol-name symbol))
-         (internalp (eql (nth-value 1 (find-symbol sname pname)) :internal))
-         (separator (if internalp "::" ":")))
+         (sname (symbol-name symbol)))
     (pyobject-from-string
-     (concatenate 'string pname separator sname))))
+     (if (string= pname "PYTHON")
+         sname
+         (let ((separator
+                 (if (eql (nth-value 1 (find-symbol sname pname)) :internal)
+                     "::"
+                     ":")))
+           (concatenate 'string pname separator sname))))))
 
 (defun make-instance-lispobj (object class-lispobj)
   (let ((lispobj (pycall class-lispobj)))
@@ -92,6 +96,42 @@ table so that the garbage collector may eventually clean up the Lisp object.")
   (make-instance-lispobj
    object
    (mirror-into-python (class-of object))))
+
+(defmacro with-pyobjects (bindings &body body)
+  "Retrieve the PyObject of each supplied Lisp object, increment its reference
+count, execute BODY, and then decrement the reference count.
+
+Example:
+ (with-pyobjects ((pyobject object))
+   (foo pyobject))"
+  (let* ((obvars (loop repeat (length bindings) collect (gensym)))
+         (pyvars (mapcar #'first bindings))
+         (forms (mapcar #'second bindings))
+         (obvar-bindings (mapcar #'list obvars forms))
+         (pyvar-bindings
+           (loop for pyvar in pyvars
+                 for obvar in obvars
+                 collect
+                 `(,pyvar (mirror-into-python ,obvar)))))
+    `(let (,@obvar-bindings)
+       (let (,@pyvar-bindings)
+         ;; Increment the refcount of each PyObject, and then touch the
+         ;; corresponding Lisp object so that it doesn't get garbage collected
+         ;; before the refcount is increased.
+         ,@(loop for pyvar in pyvars
+                 for obvar in obvars
+                 collect
+                 `(progn (pyobject-incref ,pyvar)
+                         (touch ,obvar)))
+         (unwind-protect (progn ,@body)
+           ;;Decrement the refcount of each PyObject.
+           ,@(loop for pyvar in pyvars
+                   collect
+                   `(pyobject-decref ,pyvar)))))))
+
+(declaim (notinline touch))
+
+(defun touch (x) x)
 
 ;;; TODO change-class -> update-dependents -> update PyObject type
 

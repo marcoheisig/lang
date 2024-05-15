@@ -44,8 +44,9 @@ Doesn't increase the reference count of any of the supplied PyObjects."
 
 (defun pyobject-from-string (string)
   "Returns a PyObject with the same content as the supplied Lisp string."
-  (declare (string string))
-  (let* ((octets (sb-ext:string-to-octets string :external-format :utf-8))
+  (declare (alexandria:string-designator string))
+  (let* ((string (string string))
+         (octets (sb-ext:string-to-octets string :external-format :utf-8))
          (nbytes (length octets)))
     (cffi:with-foreign-object (errors :pointer)
       (cffi:with-foreign-object (char-pointer :uchar nbytes)
