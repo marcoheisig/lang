@@ -77,6 +77,12 @@ at any time if necessary.")
 (setf (gethash 0 *python-object-table*)
       (find-class 'python:|None|))
 
+(defparameter python:|type| (find-class 'python:|type|))
+
+(defparameter python:|object| (find-class 'python:|object|))
+
+(defparameter python:|None| (find-class 'python:|None|))
+
 (defun mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
   (declare (pyobject pyobject))

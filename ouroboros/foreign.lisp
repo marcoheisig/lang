@@ -64,6 +64,9 @@
 (cffi:defcfun ("PyObject_IsTrue" pyobject-truep) :bool
   (pyobject :pointer))
 
+(cffi:defcfun ("PyObject_Not" pyobject-not) :bool
+  (pyobject :pointer))
+
 (cffi:defcfun ("PyObject_Dir" pyobject-dir) :pointer
   (pyobject :pointer))
 

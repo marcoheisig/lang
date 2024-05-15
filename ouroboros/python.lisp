@@ -3,16 +3,22 @@
 ;;; Define a package that mimics the behavior of the Python programming
 ;;; language, but using Lisp S-expressions as syntax.
 
-(defun truep (python-object)
-  (pyobject-truep (mirror-into-python ,expression)))
+(defun truep (object)
+  (with-pyobjects ((pyobject object))
+    (pyobject-truep pyobject)))
 
 (defmacro python:|and| (&rest clauses)
-  `(and ,@()))
+  `(if (and ,@(loop for clause in clauses collect `(truep ,clause)))
+       python:|True|
+       python:|False|))
 
 (defmacro python:|assert| (expression)
-  `(unless (pyobject-truep (mirror-into-python ,expression))
-     (error "Expression ~S evaluated to False."
-            ',expression)))
+  (alexandria:with-gensyms (value)
+    `(let ((,value ,expression))
+       (unless (truep ,value)
+         (error "Expression ~S evaluated to False."
+                ',expression))
+       ,value)))
 
 (defmacro python:|await| (&rest rest)
   (declare (ignore rest))
@@ -67,6 +73,22 @@
           (values nil nil)
           (values (mirror-into-lisp pynext) t)))))
 
+(defmacro python:|if| (test then &optional (else python:|None|))
+  `(if (truep ,test)
+       ,then
+       ,else))
+
+(defun python:|not| (object)
+  (with-pyobjects ((pyobject object))
+    (if (pyobject-not pyobject)
+        python:|True|
+        python:|False|)))
+
+(defmacro python:|or| (&rest clauses)
+  `(if (or ,@(loop for clause in clauses collect `(truep ,clause)))
+       python:|True|
+       python:|False|))
+
 (defun (setf python:|getattr|) (value object attribute)
   (python:|setattr| object attribute value))
 
@@ -89,7 +111,7 @@
          (pyobject-decref pymodulename))))))
 
 (defun python:|pass| ()
-  (find-class 'python:|None|))
+  python:|None|)
 
 (defmacro python:|break| ()
   (error "Not yet implemented."))

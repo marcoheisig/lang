@@ -26,7 +26,7 @@
    ;; "finally"
    "for"
    ;; "from"
-   "global"
+   ;; "global"
    "if"
    "import"
    "import-from" ;; newly introduced
