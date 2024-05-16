@@ -33,6 +33,7 @@
    ;; "in"
    "is"
    "lambda"
+   "let" ;; newly introduced
    "match"
    ;; "nonlocal"
    "not"

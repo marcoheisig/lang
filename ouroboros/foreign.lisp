@@ -156,11 +156,6 @@
 (cffi:defcfun ("PyLong_FromDouble" pylong-from-double-float) :pointer
   (double :double))
 
-;;; PyBool
-
-(cffi:defcfun ("PyBool_FromLong" pybool-from-long) :pointer
-  (long :long))
-
 ;;; PyIter
 
 (cffi:defcfun ("PyIter_Check" pyiterp) :bool
@@ -209,6 +204,9 @@
 
 (cffi:defcfun ("PyTuple_Pack" pytuple-pack) :pointer
   (size :size) &rest)
+
+(defun (setf pytuple-getitem) (pyvalue pytuple position)
+  (pytuple-setitem pytuple position pyvalue))
 
 ;;; PyDict
 
@@ -318,3 +316,7 @@
 (defun pyobject-refcount (pyobject)
   (declare (cffi:foreign-pointer pyobject))
   (cffi:mem-ref pyobject :size *pyobject-refcount-offset*))
+
+(defconstant +python-vectorcall-arguments-offset+
+  ;; Copied from include/python3.11/cpython/abstract.h
+  (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))

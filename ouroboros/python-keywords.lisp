@@ -1,11 +1,13 @@
-(in-package #:ouroboros)
+(cl:in-package #:ouroboros)
 
-;;; Define a package that mimics the behavior of the Python programming
-;;; language, but using Lisp S-expressions as syntax.
-
-(defparameter python:|True| (mirror-into-lisp (pybool-from-long 1)))
-
-(defparameter python:|False| (mirror-into-lisp (pybool-from-long 0)))
+(defmacro python:|let| (bindings &body body)
+  (if (null bindings)
+      `(progn ,@body)
+      (destructuring-bind (var form) (first bindings)
+        `(let ((,var ,form))
+           (flet ((,var (&rest args)
+                    (apply ,var args)))
+             (python:|let| ,(rest bindings) ,@body))))))
 
 (defun truep (object)
   (with-pyobjects ((pyobject object))
@@ -82,24 +84,6 @@
        ,then
        ,else))
 
-(defmacro python:|import| (module-name &optional (variable module-name))
-  `(defparameter ,variable (find-module ',module-name)))
-
-(defmacro python:|import-from| (module-name &rest variables)
-  (alexandria:with-gensyms (module)
-    `(let ((,module (find-module ',module-name)))
-       ,@(loop for variable in variables
-               collect
-               `(defparameter ,variable
-                  (python:|getattr| ,module ',variable))))))
-
-(defun find-module (module-name)
-  (let ((pymodulename (pyobject-from-string module-name)))
-    (mirror-into-lisp
-     (with-python-error-handling
-       (prog1 (pyimport-getmodule pymodulename)
-         (pyobject-decref pymodulename))))))
-
 (defun python:|is| (&rest objects)
   (if (loop for (object . rest) on objects
             until (null rest)
@@ -127,107 +111,3 @@
 
 (defun python:|pass| ()
   python:|None|)
-
-(defun (setf python:|getattr|) (value object attribute)
-  (python:|setattr| object attribute value))
-
-(defun python:|getattr| (object attribute)
-  (let ((pyobject (mirror-into-python object))
-        (pyattribute
-          (pyobject-from-string attribute)))
-    (unwind-protect (mirror-into-lisp (pyobject-getattr pyobject pyattribute))
-      (pyobject-decref pyattribute))))
-
-(defun python:|setattr| (object attribute value)
-  (let ((pyobject (mirror-into-python object))
-        (pyattribute
-          (pyobject-from-string attribute))
-        (pyvalue (mirror-into-python value)))
-    (prog1 value
-      (unwind-protect (pyobject-setattr pyobject pyattribute pyvalue)
-        (pyobject-decref pyattribute)))))
-
-(in-package #:python)
-
-(named-readtables:in-readtable python:syntax)
-
-(import-from
- builtins
- False
- True
- None
- NotImplemented
- Ellipsis
- __debug__
- abs
- aiter
- all
- anext
- any
- ascii
- bin
- bool
- breakpoint
- bytearray
- bytes
- callable
- chr
- classmethod
- compile
- complex
- delattr
- dict
- dir
- divmod
- enumerate
- eval
- exec
- filter
- float
- format
- frozenset
- getattr
- globals
- hasattr
- hash
- help
- hex
- id
- input
- int
- isinstance
- issubclass
- iter
- len
- list
- locals
- map
- max
- memoryview
- min
- next
- object
- oct
- open
- ord
- pow
- print
- property
- range
- repr
- reversed
- round
- set
- setattr
- slice
- sorted
- staticmethod
- str
- sum
- super
- tuple
- type
- vars
- zip
- __import__
- )
