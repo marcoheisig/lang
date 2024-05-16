@@ -34,7 +34,7 @@
    "is"
    "lambda"
    "match"
-   "nonlocal"
+   ;; "nonlocal"
    "not"
    "or"
    "pass"

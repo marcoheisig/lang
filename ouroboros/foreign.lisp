@@ -156,6 +156,11 @@
 (cffi:defcfun ("PyLong_FromDouble" pylong-from-double-float) :pointer
   (double :double))
 
+;;; PyBool
+
+(cffi:defcfun ("PyBool_FromLong" pybool-from-long) :pointer
+  (long :long))
+
 ;;; PyIter
 
 (cffi:defcfun ("PyIter_Check" pyiterp) :bool

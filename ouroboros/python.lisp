@@ -3,6 +3,10 @@
 ;;; Define a package that mimics the behavior of the Python programming
 ;;; language, but using Lisp S-expressions as syntax.
 
+(defparameter python:|True| (mirror-into-lisp (pybool-from-long 1)))
+
+(defparameter python:|False| (mirror-into-lisp (pybool-from-long 0)))
+
 (defun truep (object)
   (with-pyobjects ((pyobject object))
     (pyobject-truep pyobject)))
@@ -39,8 +43,7 @@
   (error "Encountered continue statement outside of a loop."))
 
 (defmacro python:|def| (name lambda-list &body body)
-  (declare (ignore name lambda-list body))
-  (error "Not yet implemented."))
+  `(defun ,name ,lambda-list ,@body))
 
 (defmacro python:|del| (variable)
   (declare (ignore variable))
@@ -60,7 +63,8 @@
                          `(go ,',loop-end)))
               ,@body))
           (go ,loop-start)
-          ,loop-end))))
+          ,loop-end)
+       python:|None|)))
 
 (defun make-iterator (iterable)
   (with-pyobjects ((pyobject iterable))
@@ -70,27 +74,13 @@
   (with-pyobjects ((pyiter iterator))
     (let* ((pynext (pyiter-next pyiter)))
       (if (cffi:null-pointer-p pynext)
-          (values nil nil)
+          (values python:|None| nil)
           (values (mirror-into-lisp pynext) t)))))
 
 (defmacro python:|if| (test then &optional (else python:|None|))
   `(if (truep ,test)
        ,then
        ,else))
-
-(defun python:|not| (object)
-  (with-pyobjects ((pyobject object))
-    (if (pyobject-not pyobject)
-        python:|True|
-        python:|False|)))
-
-(defmacro python:|or| (&rest clauses)
-  `(if (or ,@(loop for clause in clauses collect `(truep ,clause)))
-       python:|True|
-       python:|False|))
-
-(defun (setf python:|getattr|) (value object attribute)
-  (python:|setattr| object attribute value))
 
 (defmacro python:|import| (module-name &optional (variable module-name))
   `(defparameter ,variable (find-module ',module-name)))
@@ -110,11 +100,36 @@
        (prog1 (pyimport-getmodule pymodulename)
          (pyobject-decref pymodulename))))))
 
+(defun python:|is| (&rest objects)
+  (if (loop for (object . rest) on objects
+            until (null rest)
+            always (eq object (first rest)))
+      python:|True|
+      python:|False|))
+
+(defmacro python:|lambda| (lambda-list &body body)
+  `(lambda ,lambda-list ,@body))
+
+(defmacro python:|match| (object &body patterns)
+  (declare (ignore object patterns))
+  (error "Not yet implemented."))
+
+(defun python:|not| (object)
+  (with-pyobjects ((pyobject object))
+    (if (pyobject-not pyobject)
+        python:|True|
+        python:|False|)))
+
+(defmacro python:|or| (&rest clauses)
+  `(if (or ,@(loop for clause in clauses collect `(truep ,clause)))
+       python:|True|
+       python:|False|))
+
 (defun python:|pass| ()
   python:|None|)
 
-(defmacro python:|break| ()
-  (error "Not yet implemented."))
+(defun (setf python:|getattr|) (value object attribute)
+  (python:|setattr| object attribute value))
 
 (defun python:|getattr| (object attribute)
   (let ((pyobject (mirror-into-python object))

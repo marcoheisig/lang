@@ -14,13 +14,12 @@
   (pytype-subtypep (pyobject-pytype pyobject) pytype))
 
 (defun pytuple (&rest pyobjects)
-  "Creates a tuple PyObject from the supplied element PyObjects.
-
-Doesn't increase the reference count of any of the supplied PyObjects."
+  "Creates a tuple PyObject from the supplied element PyObjects."
   (let* ((size (length pyobjects))
          (tuple (pytuple-new size)))
     (loop for position below size
           for pyobject in pyobjects
+          do (pyobject-incref pyobject)
           do (pytuple-setitem tuple position pyobject))
     tuple))
 
