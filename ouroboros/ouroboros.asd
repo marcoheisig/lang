@@ -18,6 +18,5 @@
    (:file "low-level")
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
-   (:file "call")
    (:file "python-builtins")
    (:file "python-keywords")))

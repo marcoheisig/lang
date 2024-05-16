@@ -1,5 +1,23 @@
 (in-package #:ouroboros)
 
+(declaim (inline pyobject-refcount pyobject-incref pyobject-decref))
+
+(defun pyobject-refcount (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (cffi:mem-ref pyobject :size *pyobject-refcount-offset*))
+
+(defun pyobject-incref (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (incf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)))
+
+(defun pyobject-decref (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (let ((value (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)))
+    (if (= 1 value)
+        (pyobject-foreign-decref pyobject)
+        (setf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)
+              (1- value)))))
+
 (defun call-with-python-error-handling (thunk)
   (unwind-protect (funcall thunk)
     (pyerr-check-signals)

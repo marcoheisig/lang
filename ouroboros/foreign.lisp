@@ -9,10 +9,10 @@
 
 (cffi:defcfun ("Py_IsInitialized" python-initializedp) :bool)
 
-(cffi:defcfun ("Py_IncRef" pyobject-incref) :void
+(cffi:defcfun ("Py_IncRef" pyobject-foreign-incref) :void
   (pyobject :pointer))
 
-(cffi:defcfun ("Py_DecRef" pyobject-decref) :void
+(cffi:defcfun ("Py_DecRef" pyobject-foreign-decref) :void
   (pyobject :pointer))
 
 (cffi:defcfun ("Py_ReprEnter" pyobject-repr-enter) :bool
@@ -20,6 +20,21 @@
 
 (cffi:defcfun ("Py_ReprLeave" pyobject-repr-leave) :void
   (pyobject :pointer))
+
+;;; PyGIL
+
+(cffi:defcfun ("PyGILState_Ensure" pygilstate-ensure) :int)
+
+(cffi:defcfun ("PyGILState_Release" pygilstate-release) :void
+  (pygilstate :int))
+
+(defun call-with-python-global-interpreter-lock-held (thunk)
+  (let ((handle (pygilstate-ensure)))
+    (unwind-protect (funcall thunk)
+      (pygilstate-release handle))))
+
+(defmacro with-python-global-interpreter-lock-held (&body body)
+  `(call-with-python-global-interpreter-lock-held (lambda () ,@body)))
 
 ;;; PyObject
 
@@ -208,6 +223,23 @@
 (defun (setf pytuple-getitem) (pyvalue pytuple position)
   (pytuple-setitem pytuple position pyvalue))
 
+;;; PyList
+
+(cffi:defcfun ("PyList_New" pylist-new) :pointer
+  (size :size))
+
+(cffi:defcfun ("PyList_Size" pylist-size) :size
+  (pylist :pointer))
+
+(cffi:defcfun ("PyList_GetItem" pylist-getitem) :pointer
+  (pylist :pointer)
+  (position :size))
+
+(cffi:defcfun ("PyList_SetItem" pylist-setitem) :pointer
+  (pylist :pointer)
+  (position :size)
+  (pyvalue :pointer))
+
 ;;; PyDict
 
 (cffi:defcfun ("PyDict_New" pydict-new) :pointer)
@@ -267,6 +299,49 @@
 (unless (python-initializedp)
   (python-initialize-ex nil))
 
+;;; Constants (Copied from include/python3.11/cpython/object.h)
+;;;
+;;; Admittedly, I could use CFFI's groveler to extract this information, but
+;;; I'd rather not taint this project with a C compiler dependency.
+
+(defmacro define-tpflags (&body clauses)
+  `(progn ,@(loop for (bit name) in clauses
+                  collect
+                  `(defconstant ,name (ash 1 ,bit)))
+          (defun extract-tpflags (flags)
+            (declare (type unsigned-byte flags))
+            (append
+             ,@(loop for (bit name) in clauses
+                     collect
+                     `(when (logbitp ,bit flags)
+                        (list ',name)))))))
+
+(define-tpflags
+  (5  +tpflags-sequence+)
+  (6  +tpflags-mapping+)
+  (7  +tpflags-diallow-instantiation+)
+  (8  +tpflags-immutabletype+)
+  (9  +tpflags-heaptype+)
+  (10 +tpflags-basetype+)
+  (11 +tpflags-have-vectorcall+)
+  (12 +tpflags-ready+)
+  (13 +tpflags-readying+)
+  (14 +tpflags-have-gc+)
+  (17 +tpflags-method-descriptor+)
+  (19 +tpflags-valid-version-tag+)
+  (20 +tpflags-is-abstract+)
+  (24 +tpflags-long-subclass+)
+  (25 +tpflags-list-subclass+)
+  (26 +tpflags-tuple-subclass+)
+  (27 +tpflags-bytes-subclass+)
+  (28 +tpflags-unicode-subclass+)
+  (29 +tpflags-dict-subclass+)
+  (30 +tpflags-base-exc-subclass+)
+  (31 +tpflags-type-subclass+))
+
+(defconstant +python-vectorcall-arguments-offset+
+  (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))
+
 ;;; Pointers and Slots
 
 (deftype pyobject ()
@@ -290,12 +365,18 @@
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
 
-(declaim (type (integer 0 256) *pyobject-type-offset* *pyobject-refcount-offset*))
+(declaim (type (integer 0 1024)
+               *pyobject-type-offset*
+               *pyobject-refcount-offset*
+               *pytype-flags-offset*
+               *pytype-call-offset*
+               *pytype-vectorcall-offset-offset*
+               *pytype-vectorcall-offset*))
 
 (defparameter *pyobject-type-offset*
   ;; We know that Python's type object is its own type, so we can determine the
   ;; offset by linear search.
-  (loop for offset from 0 to 256 do
+  (loop for offset to 1024 do
     (when (cffi:pointer-eq
            (cffi:mem-ref *type-pyobject* :pointer offset)
            *type-pyobject*)
@@ -310,13 +391,130 @@
   (error "Failed to determine the type offset of Python objects."))
 
 (defparameter *pyobject-refcount-offset*
-  (- *pyobject-type-offset* 8)
+  ;; Acquire the GIL, because we are going to bump reference counts.
+  (with-python-global-interpreter-lock-held
+    ;; Locate the byte offset to the reference count by temporarily bumping the
+    ;; reference count and checking whether it affects the current region.
+    (loop for offset to 1024 do
+      (let* ((increment 7)
+             (pyobject *type-pyobject*)
+             (before (cffi:mem-ref pyobject :size offset)))
+        (loop repeat increment do (pyobject-foreign-incref pyobject))
+        (let ((after (cffi:mem-ref pyobject :size offset)))
+          (loop repeat increment do (pyobject-foreign-decref pyobject))
+          (when (= (+ before increment) after)
+            (return offset))))))
   "The byte offset from the start of a Python object to its reference count.")
 
-(defun pyobject-refcount (pyobject)
-  (declare (cffi:foreign-pointer pyobject))
-  (cffi:mem-ref pyobject :size *pyobject-refcount-offset*))
+(defparameter *pytype-flags-offset*
+  (with-python-global-interpreter-lock-held
+    ;; We know some of the flag bits of certain types, and we can use this to
+    ;; find the offset to where the flag bits are stored.
+    (let* ((long (pylong-from-long 42))
+           (tuple (pytuple-new 1))
+           (list (pylist-new 1))
+           (dict (pydict-new))
+           (long-type (pyobject-pytype long))
+           (tuple-type (pyobject-pytype tuple))
+           (list-type (pyobject-pytype list))
+           (dict-type (pyobject-pytype dict))
+           (builtin (logior +tpflags-immutabletype+ +tpflags-basetype+))
+           (primitives
+             (logior +tpflags-long-subclass+
+                     +tpflags-list-subclass+
+                     +tpflags-tuple-subclass+
+                     +tpflags-bytes-subclass+
+                     +tpflags-unicode-subclass+
+                     +tpflags-dict-subclass+
+                     +tpflags-type-subclass+))
+           (offset
+             (loop for offset to 1024 do
+               (flet ((probe (pytype positive negative)
+                        (let ((bits (cffi:mem-ref pytype :ulong offset)))
+                          (and (zerop (logandc1 bits positive))
+                               (zerop (logand bits negative))))))
+                 (when (and (probe *object-pyobject* builtin 0)
+                            (probe *type-pyobject*
+                                   (logior builtin +tpflags-type-subclass+)
+                                   (logandc2 primitives +tpflags-type-subclass+))
+                            (probe long-type
+                                   (logior builtin +tpflags-long-subclass+)
+                                   (logandc2 primitives +tpflags-long-subclass+))
+                            (probe tuple-type
+                                   (logior builtin +tpflags-tuple-subclass+)
+                                   (logandc2 primitives +tpflags-tuple-subclass+))
+                            (probe list-type
+                                   (logior builtin +tpflags-list-subclass+ +tpflags-sequence+)
+                                   (logandc2 primitives +tpflags-list-subclass+))
+                            (probe dict-type
+                                   (logior builtin +tpflags-dict-subclass+)
+                                   (logandc2 primitives +tpflags-dict-subclass+)))
+                   (return offset))))))
+      (pyobject-foreign-decref long)
+      (pyobject-foreign-decref dict)
+      (pyobject-foreign-decref tuple)
+      offset))
+  "The byte offset from the start of a Python object to the slot holding its
+flag bits.")
 
-(defconstant +python-vectorcall-arguments-offset+
-  ;; Copied from include/python3.11/cpython/abstract.h
-  (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))
+(defun pytype-flags (pytype)
+  (extract-tpflags
+   (cffi:mem-ref pytype :ulong *pytype-flags-offset*)))
+
+#+(or)
+(defparameter *pytype-call-offset*
+  (loop for offset to 1024 do
+    (error "TODO"))
+  "The byte offset from the start of a Python object to the slot holding its
+call function, if there is any.")
+
+#+(or)
+(defparameter *pytype-vectorcall-offset-offset*
+  (loop for offset to 1024 do
+    (error "TODO"))
+  "The byte offset from the start of a Python object to the slot holding its
+vectorcall offset.")
+
+#+(or)
+(defparameter *pytype-vectorcall-offset*
+  (loop for offset to 1024 do
+    (error "TODO"))
+  "The byte offset from the start of a Python object to the slot holding its
+vectorcall function, if there is any.")
+
+;;; Steps for making the instances of some class vectorcallable:
+;;;
+;;; 1. Set Py_TPFLAGS_HAVE_VECTORCALL of the tp_flags slots.
+;;;
+;;; 2. Set the tp_vectorcall_offset to the byte offset of the tp_vectorcall
+;;; slot.
+;;;
+;;; 3. Set the tp_vectorcall slot to a suitable function.
+;;;
+;;; 4. Set the tp_call slot to PyVectorcall_Call for backward compatibility.
+
+#+(or)
+(cffi:defcallback vectorcall-into-lisp :pointer
+    ((callable :pointer)
+     (args :pointer)
+     (nargsf :size)
+     (kwnames :pointer))
+  (flet ((argref (index)
+           (mirror-into-lisp (cffi:mem-aref args :pointer index))))
+    (let ((nargs (logandc2 nargsf +python-vectorcall-arguments-offset+))
+          (function (mirror-into-lisp callable)))
+      (mirror-into-python
+       (if (or (cffi:null-pointer-p kwnames)
+               (zerop (pytuple-size kwnames)))
+           ;; Call without keyword arguments.
+           (case nargs
+             (0 (funcall function))
+             (1 (funcall function (argref 0)))
+             (2 (funcall function (argref 0) (argref 1)))
+             (3 (funcall function (argref 0) (argref 1) (argref 2)))
+             (4 (funcall function (argref 0) (argref 1) (argref 2) (argref 3)))
+             (otherwise
+              (apply function (loop for index below nargs collect (argref index)))))
+           ;; Call with keyword arguments.
+           (let ((args '()))
+             (error "TODO")))))))

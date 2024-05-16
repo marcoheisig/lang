@@ -30,9 +30,7 @@
                `(let ((,value (python:|getattr| ,module ',variable)))
                   (defparameter ,variable ,value)
                   (defun ,variable (&rest arguments)
-                    (apply #'call ,value arguments))
-                  (define-compiler-macro ,variable (&rest arguments)
-                    `(call ,',variable ,@arguments)))))))
+                    (pyapply ,value arguments)))))))
 
 (defun find-module (module-name)
   (let ((pymodulename (pyobject-from-string module-name)))
@@ -82,7 +80,6 @@
  format
  frozenset
  ;; getattr
- global
  hasattr
  hash
  help
