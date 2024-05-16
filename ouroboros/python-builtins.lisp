@@ -30,7 +30,8 @@
                `(let ((,value (python:|getattr| ,module ',variable)))
                   (defparameter ,variable ,value)
                   (defun ,variable (&rest arguments)
-                    (pyapply ,value arguments)))))))
+                    (with-pyobjects ((fn ,value))
+                      (pyapply fn arguments))))))))
 
 (defun find-module (module-name)
   (let ((pymodulename (pyobject-from-string module-name)))
