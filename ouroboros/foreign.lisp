@@ -28,13 +28,13 @@
 (cffi:defcfun ("PyGILState_Release" pygilstate-release) :void
   (pygilstate :int))
 
-(defun call-with-python-global-interpreter-lock-held (thunk)
+(defun call-with-global-interpreter-lock-held (thunk)
   (let ((handle (pygilstate-ensure)))
     (unwind-protect (funcall thunk)
       (pygilstate-release handle))))
 
-(defmacro with-python-global-interpreter-lock-held (&body body)
-  `(call-with-python-global-interpreter-lock-held (lambda () ,@body)))
+(defmacro with-global-interpreter-lock-held (&body body)
+  `(call-with-global-interpreter-lock-held (lambda () ,@body)))
 
 ;;; PyObject
 
@@ -392,7 +392,7 @@
 
 (defparameter *pyobject-refcount-offset*
   ;; Acquire the GIL, because we are going to bump reference counts.
-  (with-python-global-interpreter-lock-held
+  (with-global-interpreter-lock-held
     ;; Locate the byte offset to the reference count by temporarily bumping the
     ;; reference count and checking whether it affects the current region.
     (loop for offset to 1024 do
@@ -407,7 +407,7 @@
   "The byte offset from the start of a Python object to its reference count.")
 
 (defparameter *pytype-flags-offset*
-  (with-python-global-interpreter-lock-held
+  (with-global-interpreter-lock-held
     ;; We know some of the flag bits of certain types, and we can use this to
     ;; find the offset to where the flag bits are stored.
     (let* ((long (pylong-from-long 42))

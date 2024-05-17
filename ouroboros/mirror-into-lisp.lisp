@@ -34,24 +34,17 @@ at any time if necessary.")
      &key pyobject &allow-other-keys)
   "Register the Python object in the global Python object table, define a
 finalizer for it, and set its funcallable instance function."
-  (alexandria:ensure-gethash
-   (pyobject-address pyobject)
-   *python-object-table*
-   (register-python-object-finalizer pyobject python-object))
   (set-funcallable-instance-function
    python-object
    (lambda (&rest args)
-     (pyapply pyobject args))))
-
-(defun register-python-object-finalizer (pyobject python-object)
-  (pyobject-incref pyobject)
-  (trivial-garbage:finalize
-   python-object
-   (lambda ()
-     ;; TODO ensure we are in the main thread.
-     (pyobject-decref pyobject))))
+     (pyapply pyobject args)))
+  (alexandria:ensure-gethash
+   (pyobject-address pyobject)
+   *python-object-table*
+   (register-python-object-finalizer pyobject python-object)))
 
 (defun pyapply (pycallable args)
+  (declare (pyobject pycallable))
   (multiple-value-bind (nargs nkwargs kwstart)
       (labels ((scan-positional (args nargs)
                  (if (null args)
@@ -89,7 +82,7 @@ finalizer for it, and set its funcallable instance function."
                      (pyobject-from-string (symbol-name keyword)))
             do (setf (aref argv (+ 1 nargs index))
                      (argument-pyobject argument)))
-      ;; Call
+      ;; Perform the actual call and mirror the result into Lisp.
       (mirror-into-lisp
        (prog1 (pyobject-vectorcall
                pycallable
@@ -100,6 +93,14 @@ finalizer for it, and set its funcallable instance function."
          (touch args)
          (unless (cffi:null-pointer-p kwnames)
            (pyobject-decref kwnames)))))))
+
+(defun register-python-object-finalizer (pyobject python-object)
+  (pyobject-incref pyobject)
+  (trivial-garbage:finalize
+   python-object
+   (lambda ()
+     (with-global-interpreter-lock-held
+       (pyobject-decref pyobject)))))
 
 (declaim (ftype (function (t)) mirror-into-python))
 

@@ -52,16 +52,18 @@ table so that the garbage collector may eventually clean up the Lisp object.")
   ())
 
 (defparameter *proto-standard-class-pyobject*
-  (make-class-lispobj
-   (find-class 'proto-standard-class)
-   *type-pyobject*
-   (list *type-pyobject*)))
+  (with-global-interpreter-lock-held
+    (make-class-lispobj
+     (find-class 'proto-standard-class)
+     *type-pyobject*
+     (list *type-pyobject*))))
 
 (defparameter *t-pyobject*
-  (make-class-lispobj
-   (find-class 't)
-   *type-pyobject*
-   (list *object-pyobject*)))
+  (with-global-interpreter-lock-held
+    (make-class-lispobj
+     (find-class 't)
+     *type-pyobject*
+     (list *object-pyobject*))))
 
 (defgeneric mirror-into-python (object))
 
@@ -84,20 +86,22 @@ table so that the garbage collector may eventually clean up the Lisp object.")
            (if (eq class (find-class 'standard-object))
                (list (find-class 't))
                (class-direct-superclasses class))))
-    (make-class-lispobj
-     class
-     (if (eq metaclass (find-class 'standard-class))
-         *proto-standard-class-pyobject*
-         (mirror-into-python metaclass))
-     (append (mapcar #'mirror-into-python supers)
-             (if (subtypep class 'class)
-                 (list *type-pyobject*)
-                 (list *object-pyobject*))))))
+    (with-global-interpreter-lock-held
+      (make-class-lispobj
+       class
+       (if (eq metaclass (find-class 'standard-class))
+           *proto-standard-class-pyobject*
+           (mirror-into-python metaclass))
+       (append (mapcar #'mirror-into-python supers)
+               (if (subtypep class 'class)
+                   (list *type-pyobject*)
+                   (list *object-pyobject*)))))))
 
 (defmethod mirror-into-python ((object t))
-  (make-instance-lispobj
-   object
-   (mirror-into-python (class-of object))))
+  (with-global-interpreter-lock-held
+    (make-instance-lispobj
+     object
+     (mirror-into-python (class-of object)))))
 
 (defmacro with-pyobjects (bindings &body body)
   "Retrieve the PyObject of each supplied Lisp object, increment its reference

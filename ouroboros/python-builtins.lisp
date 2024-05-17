@@ -20,18 +20,20 @@
   (python:|setattr| object attribute value))
 
 (defmacro python:|import| (module-name &optional (variable module-name))
-  `(defparameter ,variable (find-module ',module-name)))
+  `(with-global-interpreter-lock-held
+     (defparameter ,variable (find-module ',module-name))))
 
 (defmacro python:|import-from| (module-name &rest variables)
   (alexandria:with-gensyms (module value)
-    `(let ((,module (find-module ',module-name)))
-       ,@(loop for variable in variables
-               collect
-               `(let ((,value (python:|getattr| ,module ',variable)))
-                  (defparameter ,variable ,value)
-                  (defun ,variable (&rest arguments)
-                    (with-pyobjects ((fn ,value))
-                      (pyapply fn arguments))))))))
+    `(with-global-interpreter-lock-held
+       (let ((,module (find-module ',module-name)))
+         ,@(loop for variable in variables
+                 collect
+                 `(let ((,value (python:|getattr| ,module ',variable)))
+                    (defparameter ,variable ,value)
+                    (defun ,variable (&rest arguments)
+                      (with-pyobjects ((fn ,value))
+                        (pyapply fn arguments)))))))))
 
 (defun find-module (module-name)
   (let ((pymodulename (pyobject-from-string module-name)))

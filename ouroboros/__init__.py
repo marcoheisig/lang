@@ -17,6 +17,7 @@ if ((not core_path.exists()) or
     # (Re)generate the core file
     subprocess.run(
         ['sbcl',
+         '--noinform',
          '--eval', f'(load "{quicklisp_path}")',
          '--eval', f'(defparameter cl-user::*ouroboros-core* "{core_path}")',
          '--script', str(gencore_path)])
