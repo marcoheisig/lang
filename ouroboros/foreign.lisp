@@ -500,11 +500,11 @@
     ;; reference count and checking whether it affects the current region.
     (loop for offset to 1024 do
       (let* ((increment 7)
-             (pyobject *type-pyobject*)
+             (pyobject (pylist-new 0))
              (before (cffi:mem-ref pyobject :size offset)))
         (loop repeat increment do (pyobject-foreign-incref pyobject))
         (let ((after (cffi:mem-ref pyobject :size offset)))
-          (loop repeat increment do (pyobject-foreign-decref pyobject))
+          (loop repeat (1+ increment) do (pyobject-foreign-decref pyobject))
           (when (= (+ before increment) after)
             (return offset))))))
   "The byte offset from the start of a Python object to its reference count.")
