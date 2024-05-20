@@ -483,7 +483,9 @@
     (when (cffi:pointer-eq
            (cffi:mem-ref *type-pyobject* :pointer offset)
            *type-pyobject*)
-      (return offset)))
+      (return offset))
+        finally
+        (error "Failed to determine the type offset of Python objects."))
   "The byte offset from the start of a Python object to the slot holding its type.")
 
 (defun pyobject-pytype (pyobject)
@@ -506,7 +508,9 @@
         (let ((after (cffi:mem-ref pyobject :size offset)))
           (loop repeat (1+ increment) do (pyobject-foreign-decref pyobject))
           (when (= (+ before increment) after)
-            (return offset))))))
+            (return offset))))
+          finally
+             (error "Failed to determine the refcount offset of Python objects.")))
   "The byte offset from the start of a Python object to its reference count.")
 
 (defparameter *pytype-flags-offset*
@@ -552,7 +556,9 @@
                             (probe dict-type
                                    (logior builtin +tpflags-dict-subclass+)
                                    (logandc2 primitives +tpflags-dict-subclass+)))
-                   (return offset))))))
+                   (return offset)))
+                   finally
+                      (error "Failed to determine the flags offset of Python objects."))))
       (pyobject-foreign-decref long)
       (pyobject-foreign-decref dict)
       (pyobject-foreign-decref tuple)
