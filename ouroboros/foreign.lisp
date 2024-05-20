@@ -150,10 +150,20 @@
 
 ;;; PyType
 
+(cffi:defcfun ("PyType_FromMetaclass" pytype-from-spec) :pointer
+  (pytype-spec :pointer))
+
+(cffi:defcfun ("PyType_GetSlot" pytype-slotref) :pointer
+  (pytype :pointer)
+  (slotid :int))
+
 (cffi:defcfun ("PyType_GetName" pytype-name) :pointer
   (pytype :pointer))
 
 (cffi:defcfun ("PyType_GetQualName" pytype-qualified-name) :pointer
+  (pytype :pointer))
+
+(cffi:defcfun ("PyType_GetModule" pytype-module) :pointer
   (pytype :pointer))
 
 (cffi:defcfun ("PyType_GetModuleName" pytype-module-name) :pointer
@@ -162,6 +172,11 @@
 (cffi:defcfun ("PyType_IsSubtype" pytype-subtypep) :bool
   (pytype1 :pointer)
   (pytype2 :pointer))
+
+;;; PyModule
+
+(cffi:defcfun ("PyModule_New" pymodule-new) :pointer
+  (name :string))
 
 ;;; PyLong
 
@@ -299,7 +314,7 @@
 (unless (python-initializedp)
   (python-initialize-ex nil))
 
-;;; Constants (Copied from include/python3.11/cpython/object.h)
+;;; Constants (Copied from include/python3.11/cpython/*.h)
 ;;;
 ;;; Admittedly, I could use CFFI's groveler to extract this information, but
 ;;; I'd rather not taint this project with a C compiler dependency.
@@ -317,11 +332,11 @@
                         (list ',name)))))))
 
 (define-tpflags
-  (5  +tpflags-sequence+)
-  (6  +tpflags-mapping+)
-  (7  +tpflags-diallow-instantiation+)
-  (8  +tpflags-immutabletype+)
-  (9  +tpflags-heaptype+)
+  (05 +tpflags-sequence+)
+  (06 +tpflags-mapping+)
+  (07 +tpflags-diallow-instantiation+)
+  (08 +tpflags-immutabletype+)
+  (09 +tpflags-heaptype+)
   (10 +tpflags-basetype+)
   (11 +tpflags-have-vectorcall+)
   (12 +tpflags-ready+)
@@ -338,6 +353,94 @@
   (29 +tpflags-dict-subclass+)
   (30 +tpflags-base-exc-subclass+)
   (31 +tpflags-type-subclass+))
+
+(defmacro define-typeslots (&body clauses)
+  `(progn ,@(loop for (slotid name) in clauses
+                  collect
+                  `(defconstant ,name ,slotid))))
+
+(define-typeslots
+  (01 +bf-getbuffer+)
+  (02 +bf-releasebuffer+)
+  (03 +mp-ass-subscript+)
+  (04 +mp-length+)
+  (05 +mp-subscript+)
+  (06 +nb-absolute+)
+  (07 +nb-add+)
+  (08 +nb-and+)
+  (09 +nb-bool+)
+  (10 +nb-divmod+)
+  (11 +nb-float+)
+  (12 +nb-floor-divide+)
+  (13 +nb-index+)
+  (14 +nb-inplace-add+)
+  (15 +nb-inplace-and+)
+  (16 +nb-inplace-floor-divide+)
+  (17 +nb-inplace-lshift+)
+  (18 +nb-inplace-multiply+)
+  (19 +nb-inplace-or+)
+  (20 +nb-inplace-power+)
+  (21 +nb-inplace-remainder+)
+  (22 +nb-inplace-rshift+)
+  (23 +nb-inplace-subtract+)
+  (24 +nb-inplace-true-divide+)
+  (25 +nb-inplace-xor+)
+  (26 +nb-int+)
+  (27 +nb-invert+)
+  (28 +nb-lshift+)
+  (29 +nb-multiply+)
+  (30 +nb-negative+)
+  (31 +nb-or+)
+  (32 +nb-positive+)
+  (33 +nb-power+)
+  (34 +nb-remainder+)
+  (35 +nb-rshift+)
+  (36 +nb-subtract+)
+  (37 +nb-true-divide+)
+  (38 +nb-xor+)
+  (39 +sq-ass-item+)
+  (40 +sq-concat+)
+  (41 +sq-contains+)
+  (42 +sq-inplace-concat+)
+  (43 +sq-inplace-repeat+)
+  (44 +sq-item+)
+  (45 +sq-length+)
+  (46 +sq-repeat+)
+  (47 +tp-alloc+)
+  (48 +tp-base+)
+  (49 +tp-bases+)
+  (50 +tp-call+)
+  (51 +tp-clear+)
+  (52 +tp-dealloc+)
+  (53 +tp-del+)
+  (54 +tp-descr-get+)
+  (55 +tp-descr-set+)
+  (56 +tp-doc+)
+  (57 +tp-getattr+)
+  (58 +tp-getattro+)
+  (59 +tp-hash+)
+  (60 +tp-init+)
+  (61 +tp-is-gc+)
+  (62 +tp-iter+)
+  (63 +tp-iternext+)
+  (64 +tp-methods+)
+  (65 +tp-new+)
+  (66 +tp-repr+)
+  (67 +tp-richcompare+)
+  (68 +tp-setattr+)
+  (69 +tp-setattro+)
+  (70 +tp-str+)
+  (71 +tp-traverse+)
+  (72 +tp-members+)
+  (73 +tp-getset+)
+  (74 +tp-free+)
+  (75 +nb-matrix-multiply+)
+  (76 +nb-inplace-matrix-multiply+)
+  (77 +am-await+)
+  (78 +am-aiter+)
+  (79 +am-anext+)
+  (80 +tp-finalize+)
+  (81 +am-send+))
 
 (defconstant +python-vectorcall-arguments-offset+
   (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))

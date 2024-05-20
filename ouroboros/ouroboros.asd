@@ -19,4 +19,5 @@
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
    (:file "python-builtins")
-   (:file "python-keywords")))
+   (:file "python-keywords")
+   (:file "ouroboros")))

@@ -35,12 +35,22 @@
                       (with-pyobjects ((fn ,value))
                         (pyapply fn arguments)))))))))
 
+(defun make-module (module-name)
+  (with-global-interpreter-lock-held
+    (let ((module (pymodule-new module-name)))
+      (unwind-protect (mirror-into-lisp module)
+        (pyobject-decref module)))))
+
 (defun find-module (module-name)
-  (let ((pymodulename (pyobject-from-string module-name)))
-    (mirror-into-lisp
-     (with-python-error-handling
-       (prog1 (pyimport-getmodule pymodulename)
-         (pyobject-decref pymodulename))))))
+  (with-global-interpreter-lock-held
+    (let* ((pymodulename (pyobject-from-string module-name))
+           (pymodule
+             (with-python-error-handling
+               (prog1 (pyimport-getmodule pymodulename)
+                 (pyobject-decref pymodulename)))))
+      (if (cffi:null-pointer-p pymodule)
+          nil
+          (mirror-into-lisp pymodule)))))
 
 (in-package #:python)
 

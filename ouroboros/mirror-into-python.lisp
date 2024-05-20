@@ -10,7 +10,7 @@ table so that the garbage collector may eventually clean up the Lisp object.")
 (defun make-class-lispobj (class metaclass-lispobj superclass-lispobjs)
   (let* ((name (class-lispobj-name class))
          (bases (apply #'pytuple superclass-lispobjs))
-         (dict (pydict-new))
+         (dict (class-lispobj-dict class))
          (args (pytuple name bases dict))
          (lispobj (pyobject-call-object metaclass-lispobj args)))
     (when (cffi:null-pointer-p lispobj)
@@ -37,6 +37,15 @@ table so that the garbage collector may eventually clean up the Lisp object.")
                      "::"
                      ":")))
            (concatenate 'string pname separator sname))))))
+
+(defun class-lispobj-dict (class)
+  "Returns a Python dictionary that describes all the methods and attributes of
+the supplied class."
+  (let ((pydict (pydict-new)))
+    ;; __repr__
+    ;; __str__
+    ;; __doc__
+    pydict))
 
 (defun make-instance-lispobj (object class-lispobj)
   (let ((lispobj (pyobject-call-no-args class-lispobj)))
