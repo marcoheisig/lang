@@ -109,32 +109,41 @@
 (cffi:defcfun ("PyErr_Clear" pyerr-clear) :void)
 
 (cffi:defcfun ("PyErr_Fetch"  pyerr-fetch) :void
-  (aptr :pointer)
-  (bptr :pointer)
-  (cptr :pointer))
+  (pytype (:pointer pyobject))
+  (pyvalue (:pointer pyobject))
+  (pytraceback (:pointer pyobject)))
 
 (cffi:defcfun ("PyErr_Restore"  pyerr-restore) :void
-  (a :pointer)
-  (b :pointer)
-  (c :pointer))
+  (pytype pyobject)
+  (pyvalue pyobject)
+  (pytraceback pyobject))
 
 (cffi:defcfun ("PyErr_CheckSignals" pyerr-check-signals) :void)
 
 (define-condition python-error (serious-condition)
-  ((%pyerror
-    :initform (alexandria:required-argument :pyerror)
-    :initarg :pyerror
-    :reader python-error-pyerror))
+  ((%type
+    :initform (alexandria:required-argument :type)
+    :initarg :type
+    :reader python-error-type)
+   (%value
+    :initform (alexandria:required-argument :value)
+    :initarg :value
+    :reader python-error-value))
   (:report
    (lambda (python-error stream)
-     (format stream "The Python error ~S occurred!"
-             (python-error-pyerror python-error)))))
+     (format stream "Received a Python exception of type ~A:~%~S"
+             (string (class-name (python-error-type python-error)))
+             (python-error-value python-error)))))
 
 (defun python-error-handler ()
-  (let ((pyerror (pyerr-occurred)))
-    (unless (cffi:null-pointer-p pyerror)
-      (pyerr-clear)
-      (error 'python-error :pyerror pyerror))))
+  (unless (cffi:null-pointer-p (pyerr-occurred))
+    (cffi:with-foreign-objects ((pytype :pointer)
+                                (pyvalue :pointer)
+                                (pytraceback :pointer))
+      (pyerr-fetch pytype pyvalue pytraceback)
+      (error 'python-error
+             :type (mirror-into-lisp (cffi:mem-ref pytype :pointer))
+             :value (mirror-into-lisp (cffi:mem-ref pyvalue :pointer))))))
 
 ;;; PyCallable
 
@@ -200,6 +209,9 @@
 
 (cffi:defcfun ("PyLong_FromDouble" pylong-from-double-float) pyobject
   (double :double))
+
+(cffi:defcfun ("PyLong_AsLong" pylong-as-long) :long
+  (pyobject pyobject))
 
 ;;; PyIter
 
@@ -504,125 +516,22 @@
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
 
-(declaim (type (integer 0 1024)
-               *pyobject-type-offset*
-               *pyobject-refcount-offset*
-               *pytype-flags-offset*
-               *pytype-call-offset*
-               *pytype-vectorcall-offset-offset*
-               *pytype-vectorcall-offset*))
-
-(defparameter *pyobject-type-offset*
-  ;; We know that Python's type object is its own type, so we can determine the
-  ;; offset by linear search.
-  (loop for offset to 1024 do
-    (when (cffi:pointer-eq
-           (cffi:mem-ref *type-pyobject* :pointer offset)
-           *type-pyobject*)
-      (return offset))
-        finally
-        (error "Failed to determine the type offset of Python objects."))
-  "The byte offset from the start of a Python object to the slot holding its type.")
-
-(defun pyobject-pytype (pyobject)
-  "Returns the type PyObject of the supplied PyObject."
-  (declare (cffi:foreign-pointer pyobject))
-  (cffi:mem-ref pyobject :pointer *pyobject-type-offset*))
-
-(unless (pyobject-eq (pyobject-pytype *object-pyobject*) *type-pyobject*)
-  (error "Failed to determine the type offset of Python objects."))
-
-(defparameter *pyobject-refcount-offset*
-  ;; Acquire the GIL, because we are going to bump reference counts.
-  (with-global-interpreter-lock-held
-    ;; Locate the byte offset to the reference count by temporarily bumping the
-    ;; reference count and checking whether it affects the current region.
-    (loop for offset to 1024 do
-      (let* ((increment 7)
-             (pyobject (pylist-new 0))
-             (before (cffi:mem-ref pyobject :size offset)))
-        (loop repeat increment do (pyobject-foreign-incref pyobject))
-        (let ((after (cffi:mem-ref pyobject :size offset)))
-          (loop repeat (1+ increment) do (pyobject-foreign-decref pyobject))
-          (when (= (+ before increment) after)
-            (return offset))))
-          finally
-             (error "Failed to determine the refcount offset of Python objects.")))
-  "The byte offset from the start of a Python object to its reference count.")
-
-(defparameter *pytype-flags-offset*
-  (with-global-interpreter-lock-held
-    ;; We know some of the flag bits of certain types, and we can use this to
-    ;; find the offset to where the flag bits are stored.
-    (let* ((long (pylong-from-long 42))
-           (tuple (pytuple-new 1))
-           (list (pylist-new 1))
-           (dict (pydict-new))
-           (long-type (pyobject-pytype long))
-           (tuple-type (pyobject-pytype tuple))
-           (list-type (pyobject-pytype list))
-           (dict-type (pyobject-pytype dict))
-           (builtin (logior +tpflags-immutabletype+ +tpflags-basetype+))
-           (primitives
-             (logior +tpflags-long-subclass+
-                     +tpflags-list-subclass+
-                     +tpflags-tuple-subclass+
-                     +tpflags-bytes-subclass+
-                     +tpflags-unicode-subclass+
-                     +tpflags-dict-subclass+
-                     +tpflags-type-subclass+))
-           (offset
-             (loop for offset to 1024 do
-               (flet ((probe (pytype positive negative)
-                        (let ((bits (cffi:mem-ref pytype :ulong offset)))
-                          (and (zerop (logandc1 bits positive))
-                               (zerop (logand bits negative))))))
-                 (when (and (probe *object-pyobject* builtin 0)
-                            (probe *type-pyobject*
-                                   (logior builtin +tpflags-type-subclass+)
-                                   (logandc2 primitives +tpflags-type-subclass+))
-                            (probe long-type
-                                   (logior builtin +tpflags-long-subclass+)
-                                   (logandc2 primitives +tpflags-long-subclass+))
-                            (probe tuple-type
-                                   (logior builtin +tpflags-tuple-subclass+)
-                                   (logandc2 primitives +tpflags-tuple-subclass+))
-                            (probe list-type
-                                   (logior builtin +tpflags-list-subclass+ +tpflags-sequence+)
-                                   (logandc2 primitives +tpflags-list-subclass+))
-                            (probe dict-type
-                                   (logior builtin +tpflags-dict-subclass+)
-                                   (logandc2 primitives +tpflags-dict-subclass+)))
-                   (return offset)))
-                   finally
-                      (error "Failed to determine the flags offset of Python objects."))))
-      (pyobject-foreign-decref long)
-      (pyobject-foreign-decref dict)
-      (pyobject-foreign-decref tuple)
-      offset))
-  "The byte offset from the start of a Python object to the slot holding its
-flag bits.")
-
-(defun pytype-flags (pytype)
-  (extract-tpflags
-   (cffi:mem-ref pytype :ulong *pytype-flags-offset*)))
-
 #+(or)
-(defparameter *pytype-call-offset*
+(defparameter +pytype-call-offset+
   (loop for offset to 1024 do
     (error "TODO"))
   "The byte offset from the start of a Python object to the slot holding its
 call function, if there is any.")
 
 #+(or)
-(defparameter *pytype-vectorcall-offset-offset*
+(defparameter +pytype-vectorcall-offset-offset+
   (loop for offset to 1024 do
     (error "TODO"))
   "The byte offset from the start of a Python object to the slot holding its
 vectorcall offset.")
 
 #+(or)
-(defparameter *pytype-vectorcall-offset*
+(defparameter +pytype-vectorcall-offset+
   (loop for offset to 1024 do
     (error "TODO"))
   "The byte offset from the start of a Python object to the slot holding its

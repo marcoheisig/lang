@@ -95,7 +95,7 @@ finalizer for it, and set its funcallable instance function."
 
 (defun register-python-object-finalizer (pyobject python-object)
   (with-global-interpreter-lock-held
-    (pyobject-incref pyobject))
+    (pyobject-foreign-incref pyobject))
   (trivial-garbage:finalize
    python-object
    (lambda ()
@@ -172,10 +172,11 @@ triggering the start of the keyword argument portion."
             ;; Create a type.
             (let* ((name (pytype-name-symbol pyobject))
                    (direct-superclasses (pytype-direct-superclasses pyobject)))
-              (make-instance class
-                :name name
-                :direct-superclasses direct-superclasses
-                :pyobject pyobject))
+              (ensure-class
+               name
+               :metaclass class
+               :direct-superclasses direct-superclasses
+               :pyobject pyobject))
             ;; Create an instance.
             (make-instance class
               :pyobject pyobject)))))

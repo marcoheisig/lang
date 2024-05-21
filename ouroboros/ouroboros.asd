@@ -21,4 +21,5 @@
    (:file "mirror-into-python")
    (:file "python-builtins")
    (:file "python-keywords")
+   (:file "python-methods")
    (:file "ouroboros")))

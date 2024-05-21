@@ -6,8 +6,7 @@
  :cffi
  :closer-mop
  :named-readtables
- :trivial-garbage
- )
+ :trivial-garbage)
 
 ;; This is a hack - we define an alien callable named posix-argv only so that
 ;; we can supply it as callable export to save-lisp-and-die.  We need to supply
