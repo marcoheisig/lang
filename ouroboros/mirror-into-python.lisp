@@ -14,6 +14,9 @@ table so that the garbage collector may eventually clean up the Lisp object.")
            (dict (class-lispobj-dict class))
            (args (pytuple name bases dict))
            (lispobj (pyobject-call-object metaclass-lispobj args)))
+      (when (subtypep class 'function)
+        (setf (cffi:mem-ref lispobj :pointer +pytype-call-offset+)
+              (cffi:callback call-into-lisp)))
       (setf (gethash class *lispobj-table*)
             lispobj)
       (setf (gethash (pyobject-address lispobj) *python-object-table*)
@@ -145,6 +148,35 @@ Example:
                    collect
                    `(pyobject-decref ,pyvar)))))))
 
+(cffi:defcallback call-into-lisp :pointer
+    ((callable :pointer)
+     (args :pointer)
+     (kwargs :pointer))
+  (let ((fn (mirror-into-lisp callable))
+        (nargs (pytuple-size args))
+        (nkwargs
+          (if (cffi:null-pointer-p kwargs)
+              0
+              (pydict-size kwargs))))
+    (assert (functionp fn))
+    (flet ((arg (index)
+             (mirror-into-lisp
+              (pytuple-getitem args index))))
+      (mirror-into-python
+       (if (zerop nkwargs)
+           (case nargs
+             (0 (funcall fn))
+             (1 (funcall fn (arg 0)))
+             (2 (funcall fn (arg 0) (arg 1)))
+             (3 (funcall fn (arg 0) (arg 1) (arg 2)))
+             (4 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3)))
+             (5 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4)))
+             (6 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)))
+             (otherwise
+              (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)
+                     (loop for index from 6 below nargs collect (arg index)))))
+           (error "TODO"))))))
+
 ;;; TODO change-class -> update-dependents -> update PyObject type
 
 ;;; TODO finalizer
@@ -155,4 +187,39 @@ Example:
 
 ;;; TODO __call__
 
-;;; TODO Make CL accessible
+;;; Steps for making the instances of some class vectorcallable:
+;;;
+;;; 1. Set Py_TPFLAGS_HAVE_VECTORCALL of the tp_flags slots.
+;;;
+;;; 2. Set the tp_vectorcall_offset to the byte offset of the tp_vectorcall
+;;; slot.
+;;;
+;;; 3. Set the tp_vectorcall slot to a suitable function.
+;;;
+;;; 4. Set the tp_call slot to PyVectorcall_Call for backward compatibility.
+
+#+(or)
+(cffi:defcallback vectorcall-into-lisp :pointer
+    ((callable :pointer)
+     (args :pointer)
+     (nargsf :size)
+     (kwnames :pointer))
+  (flet ((argref (index)
+           (mirror-into-lisp (cffi:mem-aref args :pointer index))))
+    (let ((nargs (logandc2 nargsf +python-vectorcall-arguments-offset+))
+          (function (mirror-into-lisp callable)))
+      (mirror-into-python
+       (if (or (cffi:null-pointer-p kwnames)
+               (zerop (pytuple-size kwnames)))
+           ;; Call without keyword arguments.
+           (case nargs
+             (0 (funcall function))
+             (1 (funcall function (argref 0)))
+             (2 (funcall function (argref 0) (argref 1)))
+             (3 (funcall function (argref 0) (argref 1) (argref 2)))
+             (4 (funcall function (argref 0) (argref 1) (argref 2) (argref 3)))
+             (otherwise
+              (apply function (loop for index below nargs collect (argref index)))))
+           ;; Call with keyword arguments.
+           (let ((args '()))
+             (error "TODO")))))))

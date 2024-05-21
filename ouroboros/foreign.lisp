@@ -177,7 +177,7 @@
 (cffi:defcfun ("PyType_FromMetaclass" pytype-from-spec) pyobject
   (pytype-spec :pointer))
 
-(cffi:defcfun ("PyType_GetSlot" pytype-slotref) pyobject
+(cffi:defcfun ("PyType_GetSlot" pytype-slotref) :pointer
   (pytype pyobject)
   (slotid :int))
 
@@ -497,10 +497,7 @@
   (80 +tp-finalize+)
   (81 +am-send+))
 
-(defconstant +python-vectorcall-arguments-offset+
-  (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))
-
-;;; Pointers and Slots
+;;; Pointers
 
 (declaim (pyobject *type-pyobject* *object-pyobject*))
 
@@ -516,60 +513,3 @@
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
 
-#+(or)
-(defparameter +pytype-call-offset+
-  (loop for offset to 1024 do
-    (error "TODO"))
-  "The byte offset from the start of a Python object to the slot holding its
-call function, if there is any.")
-
-#+(or)
-(defparameter +pytype-vectorcall-offset-offset+
-  (loop for offset to 1024 do
-    (error "TODO"))
-  "The byte offset from the start of a Python object to the slot holding its
-vectorcall offset.")
-
-#+(or)
-(defparameter +pytype-vectorcall-offset+
-  (loop for offset to 1024 do
-    (error "TODO"))
-  "The byte offset from the start of a Python object to the slot holding its
-vectorcall function, if there is any.")
-
-;;; Steps for making the instances of some class vectorcallable:
-;;;
-;;; 1. Set Py_TPFLAGS_HAVE_VECTORCALL of the tp_flags slots.
-;;;
-;;; 2. Set the tp_vectorcall_offset to the byte offset of the tp_vectorcall
-;;; slot.
-;;;
-;;; 3. Set the tp_vectorcall slot to a suitable function.
-;;;
-;;; 4. Set the tp_call slot to PyVectorcall_Call for backward compatibility.
-
-#+(or)
-(cffi:defcallback vectorcall-into-lisp :pointer
-    ((callable :pointer)
-     (args :pointer)
-     (nargsf :size)
-     (kwnames :pointer))
-  (flet ((argref (index)
-           (mirror-into-lisp (cffi:mem-aref args :pointer index))))
-    (let ((nargs (logandc2 nargsf +python-vectorcall-arguments-offset+))
-          (function (mirror-into-lisp callable)))
-      (mirror-into-python
-       (if (or (cffi:null-pointer-p kwnames)
-               (zerop (pytuple-size kwnames)))
-           ;; Call without keyword arguments.
-           (case nargs
-             (0 (funcall function))
-             (1 (funcall function (argref 0)))
-             (2 (funcall function (argref 0) (argref 1)))
-             (3 (funcall function (argref 0) (argref 1) (argref 2)))
-             (4 (funcall function (argref 0) (argref 1) (argref 2) (argref 3)))
-             (otherwise
-              (apply function (loop for index below nargs collect (argref index)))))
-           ;; Call with keyword arguments.
-           (let ((args '()))
-             (error "TODO")))))))

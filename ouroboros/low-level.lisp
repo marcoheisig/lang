@@ -95,11 +95,25 @@
         (pyobject-foreign-decref tuple)
         offset))
     "The byte offset from the start of a Python object to the slot holding its
-flag bits."))
-
-(defun pytype-flags (pytype)
+flag bits.")
+  (defun pytype-flags (pytype)
     (extract-tpflags
-     (cffi:mem-ref pytype :ulong +pytype-flags-offset+)))
+     (cffi:mem-ref pytype :ulong +pytype-flags-offset+))))
+
+(defparameter +pytype-call-offset+
+  (with-global-interpreter-lock-held
+    (let ((callfn (pytype-slotref *type-pyobject* +tp-call+)))
+      (assert (not (cffi:null-pointer-p callfn)))
+      (loop for offset to 1024 do
+        (when (cffi:pointer-eq callfn (cffi:mem-ref *type-pyobject* :pointer offset))
+          (return offset))
+            finally
+               (error "Failed to determine the call offset of Python types."))))
+  "The byte offset from the start of a Python object to the slot holding its
+call function, if there is any.")
+
+(defconstant +python-vectorcall-arguments-offset+
+  (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))
 
 (declaim (inline pyobject-refcount pyobject-incref pyobject-decref))
 
