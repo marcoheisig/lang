@@ -6,5 +6,5 @@
 (with-global-interpreter-lock-held
   (let ((module (or (find-module "ouroboros")
                     (make-module "ouroboros"))))
-    (setf (python:|getattr| module "foo")
-          #'compile)))
+    (setf (python:|getattr| module "print")
+          #'print)))

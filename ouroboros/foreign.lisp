@@ -358,13 +358,21 @@
 (defvar *global-interpreter-lock-held* nil)
 
 (defun call-with-global-interpreter-lock-held (thunk)
-  (if *global-interpreter-lock-held*
-      (funcall thunk)
-      (let ((*global-interpreter-lock-held* t))
-        (python-restore-thread *python-thread*)
-        (unwind-protect (funcall thunk)
-          (let ((thread (python-save-thread)))
-            (assert (cffi:pointer-eq thread *python-thread*)))))))
+  (cond
+    ;; Case 1 - Lisp already holds the lock.
+    (*global-interpreter-lock-held*
+     (funcall thunk))
+    ;; Case 2 - Lisp is called from Python code that holds the lock.
+    ((python-gil-check)
+     (let ((*global-interpreter-lock-held* t))
+       (funcall thunk)))
+    ;; Case 3 - Acquire the lock and release it when the thunk returns.
+    (t
+     (let ((*global-interpreter-lock-held* t))
+       (python-restore-thread *python-thread*)
+       (unwind-protect (funcall thunk)
+         (let ((thread (python-save-thread)))
+           (assert (cffi:pointer-eq thread *python-thread*))))))))
 
 (defmacro with-global-interpreter-lock-held (&body body)
   `(call-with-global-interpreter-lock-held (lambda () ,@body)))

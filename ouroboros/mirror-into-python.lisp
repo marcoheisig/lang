@@ -152,30 +152,31 @@ Example:
     ((callable :pointer)
      (args :pointer)
      (kwargs :pointer))
-  (let ((fn (mirror-into-lisp callable))
-        (nargs (pytuple-size args))
-        (nkwargs
-          (if (cffi:null-pointer-p kwargs)
-              0
-              (pydict-size kwargs))))
-    (assert (functionp fn))
-    (flet ((arg (index)
-             (mirror-into-lisp
-              (pytuple-getitem args index))))
-      (mirror-into-python
-       (if (zerop nkwargs)
-           (case nargs
-             (0 (funcall fn))
-             (1 (funcall fn (arg 0)))
-             (2 (funcall fn (arg 0) (arg 1)))
-             (3 (funcall fn (arg 0) (arg 1) (arg 2)))
-             (4 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3)))
-             (5 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4)))
-             (6 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)))
-             (otherwise
-              (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)
-                     (loop for index from 6 below nargs collect (arg index)))))
-           (error "TODO"))))))
+  (with-global-interpreter-lock-held
+    (let ((fn (mirror-into-lisp callable))
+          (nargs (pytuple-size args))
+          (nkwargs
+            (if (cffi:null-pointer-p kwargs)
+                0
+                (pydict-size kwargs))))
+      (assert (functionp fn))
+      (flet ((arg (index)
+               (mirror-into-lisp
+                (pytuple-getitem args index))))
+        (mirror-into-python
+         (if (zerop nkwargs)
+             (case nargs
+               (0 (funcall fn))
+               (1 (funcall fn (arg 0)))
+               (2 (funcall fn (arg 0) (arg 1)))
+               (3 (funcall fn (arg 0) (arg 1) (arg 2)))
+               (4 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3)))
+               (5 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4)))
+               (6 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)))
+               (otherwise
+                (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5)
+                       (loop for index from 6 below nargs collect (arg index)))))
+             (error "TODO")))))))
 
 ;;; TODO change-class -> update-dependents -> update PyObject type
 
