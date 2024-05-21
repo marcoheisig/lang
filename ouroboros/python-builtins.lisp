@@ -44,13 +44,11 @@
 (defun find-module (module-name)
   (with-global-interpreter-lock-held
     (let* ((pymodulename (pyobject-from-string module-name))
-           (pymodule
-             (with-python-error-handling
-               (prog1 (pyimport-getmodule pymodulename)
-                 (pyobject-decref pymodulename)))))
+           (pymodule (pyimport-getmodule pymodulename)))
       (if (cffi:null-pointer-p pymodule)
           nil
-          (mirror-into-lisp pymodule)))))
+          (unwind-protect (mirror-into-lisp pymodule)
+            (pyobject-decref pymodule))))))
 
 (in-package #:python)
 

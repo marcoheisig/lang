@@ -8,47 +8,39 @@
 
 (defun pyobject-incref (pyobject)
   (declare (cffi:foreign-pointer pyobject))
-  (incf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)))
+  (with-global-interpreter-lock-held
+    (incf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*))))
 
 (defun pyobject-decref (pyobject)
   (declare (cffi:foreign-pointer pyobject))
-  (let ((value (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)))
-    (if (= 1 value)
-        (pyobject-foreign-decref pyobject)
-        (setf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)
-              (1- value)))))
-
-(defun call-with-python-error-handling (thunk)
-  (unwind-protect (funcall thunk)
-    (pyerr-check-signals)
-    (let ((err (pyerr-occurred)))
-      (unless (cffi:null-pointer-p err)
-        (pyerr-write-unraisable err)))))
-
-(defmacro with-python-error-handling (&body body)
-  `(call-with-python-error-handling (lambda () ,@body)))
+  (with-global-interpreter-lock-held
+    (let ((value (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)))
+      (if (= 1 value)
+          (pyobject-foreign-decref pyobject)
+          (setf (cffi:mem-ref pyobject :size *pyobject-refcount-offset*)
+                (1- value))))))
 
 (defun pyobject-typep (pyobject pytype)
-  (pytype-subtypep (pyobject-pytype pyobject) pytype))
+  (with-global-interpreter-lock-held
+    (pytype-subtypep (pyobject-pytype pyobject) pytype)))
 
 (defun pytuple (&rest pyobjects)
   "Creates a tuple PyObject from the supplied element PyObjects."
-  (let* ((size (length pyobjects))
-         (tuple (pytuple-new size)))
-    (loop for position below size
-          for pyobject in pyobjects
-          do (pyobject-incref pyobject)
-          do (pytuple-setitem tuple position pyobject))
-    tuple))
+  (with-global-interpreter-lock-held
+    (let* ((size (length pyobjects))
+           (tuple (pytuple-new size)))
+      (loop for position below size
+            for pyobject in pyobjects
+            do (pyobject-incref pyobject)
+            do (pytuple-setitem tuple position pyobject))
+      tuple)))
 
 (defun string-from-pyobject (pyobject)
   "Returns a Lisp string with the same content as the supplied PyObject."
   (declare (pyobject pyobject))
-  (unless (pyobject-typep pyobject *unicode-pyobject*)
-    (error "Not a PyUnicode object: ~A." pyobject))
   (cffi:with-foreign-object (size-pointer :size)
     (let* ((char-pointer
-             (with-python-error-handling
+             (with-global-interpreter-lock-held
                (pyunicode-as-utf8-string pyobject size-pointer)))
            (nbytes (if (cffi:null-pointer-p char-pointer)
                        (error "Failed to convert string from Python to Lisp.")
@@ -70,17 +62,30 @@
         (loop for index below nbytes do
           (setf (cffi:mem-ref char-pointer :uchar index)
                 (aref octets index)))
-        (let ((pyobject
-                (with-python-error-handling
-                  (pyunicode-decode-utf8 char-pointer nbytes errors))))
-          (when (cffi:null-pointer-p pyobject)
-            (error "Failed to turn ~S into a PyUnicode object." string))
-          (unless (pyobject-typep pyobject *unicode-pyobject*)
-            (error "Not a PyUnicode object: ~S" pyobject))
-          pyobject)))))
+        (with-global-interpreter-lock-held
+          (let ((pyobject
+                  (pyunicode-decode-utf8 char-pointer nbytes errors)))
+            (unless (pyobject-typep pyobject *unicode-pyobject*)
+              (error "Not a PyUnicode object: ~S" pyobject))
+            pyobject))))))
 
 (defun pyprint (pyobject &optional (stream t))
   "Print the string representation of the supplied PyObject."
-  (let ((repr (with-python-error-handling (pyobject-repr pyobject))))
-    (princ (string-from-pyobject repr) stream))
+  (with-global-interpreter-lock-held
+    (let ((repr (pyobject-repr pyobject)))
+      (princ (string-from-pyobject repr) stream)
+      (pyobject-decref repr)))
   pyobject)
+
+(declaim (notinline touch))
+
+(defun touch (x)
+  "Does nothing, but is declared notinline to keep its argument alive.
+
+We invoke this function at the end of each block that extracts a PyObject
+pointer from its Lisp wrapper, to keep the wrapper alive while manipulating the
+pointer.  We know that the reference count is always at least one while the
+wrapper is alive, and keeping the wrapper alive is cheaper than bumping
+the PyObject's refcount."
+  (declare (ignore x))
+  nil)

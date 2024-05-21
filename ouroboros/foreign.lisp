@@ -1,6 +1,6 @@
 (in-package #:ouroboros)
 
-;;; Py
+;;;  The Python Interpreter
 
 (cffi:defcfun ("Py_Initialize" python-initialize) :void)
 
@@ -9,101 +9,100 @@
 
 (cffi:defcfun ("Py_IsInitialized" python-initializedp) :bool)
 
-(cffi:defcfun ("Py_IncRef" pyobject-foreign-incref) :void
-  (pyobject :pointer))
+(cffi:defcfun ("PyGILState_Check" python-gil-check) :bool)
 
-(cffi:defcfun ("Py_DecRef" pyobject-foreign-decref) :void
-  (pyobject :pointer))
+(cffi:defcfun ("PyGILState_Ensure" python-gil-ensure) :int)
 
-(cffi:defcfun ("Py_ReprEnter" pyobject-repr-enter) :bool
-  (pyobject :pointer))
+(cffi:defcfun ("PyGILState_Release" python-gil-release) :void
+  (gilstate :int))
 
-(cffi:defcfun ("Py_ReprLeave" pyobject-repr-leave) :void
-  (pyobject :pointer))
+(cffi:defcfun ("PyEval_SaveThread" python-save-thread) :pointer)
 
-;;; PyGIL
+(cffi:defcfun ("PyEval_RestoreThread" python-restore-thread) :void
+  (thread :pointer))
 
-(cffi:defcfun ("PyGILState_Ensure" pygilstate-ensure) :int)
-
-(cffi:defcfun ("PyGILState_Release" pygilstate-release) :void
-  (pygilstate :int))
-
-(defun call-with-global-interpreter-lock-held (thunk)
-  (let ((handle (pygilstate-ensure)))
-    (unwind-protect (funcall thunk)
-      (pygilstate-release handle))))
-
-(defmacro with-global-interpreter-lock-held (&body body)
-  `(call-with-global-interpreter-lock-held (lambda () ,@body)))
+(cffi:defcfun ("PyThreadState_Get" python-current-thread) :pointer)
 
 ;;; PyObject
 
-(cffi:defcfun ("PyObject_GetAttr" pyobject-getattr) :pointer
-  (pyobject :pointer)
-  (pystring :pointer))
+(cffi:defcfun ("Py_IncRef" pyobject-foreign-incref) :void
+  (pyobject pyobject))
+
+(cffi:defcfun ("Py_DecRef" pyobject-foreign-decref) :void
+  (pyobject pyobject))
+
+(cffi:defcfun ("Py_ReprEnter" pyobject-repr-enter) :bool
+  (pyobject pyobject))
+
+(cffi:defcfun ("Py_ReprLeave" pyobject-repr-leave) :void
+  (pyobject pyobject))
+
+(cffi:defcfun ("PyObject_GetAttr" pyobject-getattr) pyobject
+  (pyobject pyobject)
+  (pystring pyobject))
 
 (cffi:defcfun ("PyObject_HasAttr" pyobject-hasattr) :bool
-  (pyobject :pointer)
-  (pystring :pointer))
+  (pyobject pyobject)
+  (pystring pyobject))
 
-(cffi:defcfun ("PyObject_GetAttrString" pyobject-getattr-string) :pointer
-  (pyobject :pointer)
+(cffi:defcfun ("PyObject_GetAttrString" pyobject-getattr-string) pyobject
+  (pyobject pyobject)
   (string :string))
 
 (cffi:defcfun ("PyObject_HasAttrString" pyobject-hasattr-string) :bool
-  (pyobject :pointer)
+  (pyobject pyobject)
   (string :string))
 
 (cffi:defcfun ("PyObject_SetAttr" pyobject-setattr) :int
-  (pyobject :pointer)
-  (pystring :pointer)
-  (pyvalue :pointer))
+  (pyobject pyobject)
+  (pystring pyobject)
+  (pyvalue pyobject))
 
 (cffi:defcfun ("PyObject_SetAttrString" pyobject-setattr-string) :int
-  (pyobject :pointer)
+  (pyobject pyobject)
   (string :string)
-  (pyvalue :pointer))
+  (pyvalue pyobject))
 
-(cffi:defcfun ("PyObject_Repr" pyobject-repr) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_Repr" pyobject-repr) pyobject
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_Str" pyobject-str) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_Str" pyobject-str) pyobject
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_ASCII" pyobject-ascii) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_ASCII" pyobject-ascii) pyobject
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_Bytes" pyobject-bytes) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_Bytes" pyobject-bytes) pyobject
+  (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_IsTrue" pyobject-truep) :bool
-  (pyobject :pointer))
+  (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_Not" pyobject-not) :bool
-  (pyobject :pointer))
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_Dir" pyobject-dir) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_Dir" pyobject-dir) pyobject
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_GetIter" pyobject-iterator) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_GetIter" pyobject-iterator) pyobject
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_GetAIter" pyobject-asynchronous-iterator) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyObject_GetAIter" pyobject-asynchronous-iterator) pyobject
+  (pyobject pyobject))
 
 ;;; PyErr
 
 (cffi:defcfun ("PyErr_Print" pyerr-print) :void)
 
 (cffi:defcfun ("PyErr_WriteUnraisable" pyerr-write-unraisable) :void
-  (pyobject :pointer))
+  (pyobject pyobject))
 
 (cffi:defcfun ("PyErr_SetNone" pyerr-set-none) :void
-  (pyobject :pointer))
+  (pyobject pyobject))
 
 (cffi:defcfun ("PyErr_SetObject" pyerr-set-object) :void
-  (pyobject :pointer)
-  (pyvalue :pointer))
+  (pyobject pyobject)
+  (pyvalue pyobject))
 
 (cffi:defcfun ("PyErr_Occurred" pyerr-occurred) :pointer)
 
@@ -121,118 +120,134 @@
 
 (cffi:defcfun ("PyErr_CheckSignals" pyerr-check-signals) :void)
 
+(define-condition python-error (serious-condition)
+  ((%pyerror
+    :initform (alexandria:required-argument :pyerror)
+    :initarg :pyerror
+    :reader python-error-pyerror))
+  (:report
+   (lambda (python-error stream)
+     (format stream "The Python error ~S occurred!"
+             (python-error-pyerror python-error)))))
+
+(defun python-error-handler ()
+  (let ((pyerror (pyerr-occurred)))
+    (unless (cffi:null-pointer-p pyerror)
+      (pyerr-clear)
+      (error 'python-error :pyerror pyerror))))
+
 ;;; PyCallable
 
 (cffi:defcfun ("PyCallable_Check" pycallablep) :bool
-  (pyobject :pointer))
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_CallNoArgs" pyobject-call-no-args) :pointer
-  (pycallable :pointer))
+(cffi:defcfun ("PyObject_CallNoArgs" pyobject-call-no-args) pyobject
+  (pycallable pyobject))
 
-(cffi:defcfun ("PyObject_CallOneArg" pyobject-call-one-arg) :pointer
-  (pycallable :pointer)
-  (arg :pointer))
+(cffi:defcfun ("PyObject_CallOneArg" pyobject-call-one-arg) pyobject
+  (pycallable pyobject)
+  (arg pyobject))
 
-(cffi:defcfun ("PyObject_Call" pyobject-call) :pointer
-  (pycallable :pointer)
-  (args :pointer)
-  (kwargs :pointer))
+(cffi:defcfun ("PyObject_Call" pyobject-call) pyobject
+  (pycallable pyobject)
+  (args pyobject)
+  (kwargs pyobject))
 
-(cffi:defcfun ("PyObject_CallObject" pyobject-call-object) :pointer
-  (pycallable :pointer)
-  (args :pointer))
+(cffi:defcfun ("PyObject_CallObject" pyobject-call-object) pyobject
+  (pycallable pyobject)
+  (args pyobject))
 
-(cffi:defcfun ("PyObject_Vectorcall" pyobject-vectorcall) :pointer
-  (pycallable :pointer)
+(cffi:defcfun ("PyObject_Vectorcall" pyobject-vectorcall) pyobject
+  (pycallable pyobject)
   (argvector :pointer)
   (nargsf :size)
-  (kwnames :pointer))
+  (kwnames pyobject))
 
 ;;; PyType
 
-(cffi:defcfun ("PyType_FromMetaclass" pytype-from-spec) :pointer
+(cffi:defcfun ("PyType_FromMetaclass" pytype-from-spec) pyobject
   (pytype-spec :pointer))
 
-(cffi:defcfun ("PyType_GetSlot" pytype-slotref) :pointer
-  (pytype :pointer)
+(cffi:defcfun ("PyType_GetSlot" pytype-slotref) pyobject
+  (pytype pyobject)
   (slotid :int))
 
-(cffi:defcfun ("PyType_GetName" pytype-name) :pointer
-  (pytype :pointer))
+(cffi:defcfun ("PyType_GetName" pytype-name) pyobject
+  (pytype pyobject))
 
-(cffi:defcfun ("PyType_GetQualName" pytype-qualified-name) :pointer
-  (pytype :pointer))
+(cffi:defcfun ("PyType_GetQualName" pytype-qualified-name) pyobject
+  (pytype pyobject))
 
-(cffi:defcfun ("PyType_GetModule" pytype-module) :pointer
-  (pytype :pointer))
+(cffi:defcfun ("PyType_GetModule" pytype-module) pyobject
+  (pytype pyobject))
 
-(cffi:defcfun ("PyType_GetModuleName" pytype-module-name) :pointer
-  (pytype :pointer))
+(cffi:defcfun ("PyType_GetModuleName" pytype-module-name) pyobject
+  (pytype pyobject))
 
 (cffi:defcfun ("PyType_IsSubtype" pytype-subtypep) :bool
-  (pytype1 :pointer)
-  (pytype2 :pointer))
+  (pytype1 pyobject)
+  (pytype2 pyobject))
 
 ;;; PyModule
 
-(cffi:defcfun ("PyModule_New" pymodule-new) :pointer
+(cffi:defcfun ("PyModule_New" pymodule-new) pyobject
   (name :string))
 
 ;;; PyLong
 
-(cffi:defcfun ("PyLong_FromLong" pylong-from-long) :pointer
+(cffi:defcfun ("PyLong_FromLong" pylong-from-long) pyobject
   (long :long))
 
-(cffi:defcfun ("PyLong_FromDouble" pylong-from-double-float) :pointer
+(cffi:defcfun ("PyLong_FromDouble" pylong-from-double-float) pyobject
   (double :double))
 
 ;;; PyIter
 
 (cffi:defcfun ("PyIter_Check" pyiterp) :bool
-  (pyobject :pointer))
+  (pyobject pyobject))
 
-(cffi:defcfun ("PyIter_Next" pyiter-next) :pointer
-  (iterator :pointer))
+(cffi:defcfun ("PyIter_Next" pyiter-next) pyobject
+  (iterator pyobject))
 
 (cffi:defcfun ("PyIter_Send" pyiter-send) :int
-  (iterator :pointer)
-  (argument :pointer)
-  (result* :pointer))
+  (iterator pyobject)
+  (argument pyobject)
+  (result* (:pointer pyobject)))
 
 ;;; PyNumber
 
 (cffi:defcfun ("PyNumber_Check" pynumberp) :bool
-  (pyobject :pointer))
+  (pyobject pyobject))
 
 ;;; PyUnicode
 
-(cffi:defcfun ("PyUnicode_AsUTF8AndSize" pyunicode-as-utf8-string) :pointer
-  (pyobject :pointer)
+(cffi:defcfun ("PyUnicode_AsUTF8AndSize" pyunicode-as-utf8-string) pyobject
+  (pyobject pyobject)
   (size-ptr (:pointer :size)))
 
-(cffi:defcfun ("PyUnicode_DecodeUTF8" pyunicode-decode-utf8) :pointer
+(cffi:defcfun ("PyUnicode_DecodeUTF8" pyunicode-decode-utf8) pyobject
   (char-pointer :pointer)
   (size :size)
-  (errors :pointer))
+  (errors (:pointer :char)))
 
 ;;; PyTuple
 
-(cffi:defcfun ("PyTuple_New" pytuple-new) :pointer
+(cffi:defcfun ("PyTuple_New" pytuple-new) pyobject
   (size :size))
 
 (cffi:defcfun ("PyTuple_Size" pytuple-size) :size
-  (pytuple :pointer))
+  (pytuple pyobject))
 
-(cffi:defcfun ("PyTuple_GetItem" pytuple-getitem) :pointer
-  (pytuple :pointer)
+(cffi:defcfun ("PyTuple_GetItem" pytuple-getitem) pyobject
+  (pytuple pyobject)
   (position :size))
 
-(cffi:defcfun ("PyTuple_SetItem" pytuple-setitem) :pointer
-  (pytuple :pointer)
+(cffi:defcfun ("PyTuple_SetItem" pytuple-setitem) :int
+  (pytuple pyobject)
   (position :size)
-  (pyvalue :pointer))
+  (pyvalue pyobject))
 
-(cffi:defcfun ("PyTuple_Pack" pytuple-pack) :pointer
+(cffi:defcfun ("PyTuple_Pack" pytuple-pack) pyobject
   (size :size) &rest)
 
 (defun (setf pytuple-getitem) (pyvalue pytuple position)
@@ -240,64 +255,64 @@
 
 ;;; PyList
 
-(cffi:defcfun ("PyList_New" pylist-new) :pointer
+(cffi:defcfun ("PyList_New" pylist-new) pyobject
   (size :size))
 
 (cffi:defcfun ("PyList_Size" pylist-size) :size
-  (pylist :pointer))
+  (pylist pyobject))
 
-(cffi:defcfun ("PyList_GetItem" pylist-getitem) :pointer
-  (pylist :pointer)
+(cffi:defcfun ("PyList_GetItem" pylist-getitem) pyobject
+  (pylist pyobject)
   (position :size))
 
-(cffi:defcfun ("PyList_SetItem" pylist-setitem) :pointer
-  (pylist :pointer)
+(cffi:defcfun ("PyList_SetItem" pylist-setitem) :int
+  (pylist pyobject)
   (position :size)
-  (pyvalue :pointer))
+  (pyvalue pyobject))
 
 ;;; PyDict
 
-(cffi:defcfun ("PyDict_New" pydict-new) :pointer)
+(cffi:defcfun ("PyDict_New" pydict-new) pyobject)
 
-(cffi:defcfun ("PyDict_GetItem" pydict-getitem) :pointer
-  (pydict :pointer)
-  (key :pointer))
+(cffi:defcfun ("PyDict_GetItem" pydict-getitem) pyobject
+  (pydict pyobject)
+  (key pyobject))
 
-(cffi:defcfun ("PyDict_SetItem" pydict-setitem) :pointer
-  (pydict :pointer)
-  (key :pointer)
-  (value :pointer))
+(cffi:defcfun ("PyDict_SetItem" pydict-setitem) :int
+  (pydict pyobject)
+  (key pyobject)
+  (value pyobject))
 
-(cffi:defcfun ("PyDict_DelItem" pydict-delitem) :pointer
-  (pydict :pointer)
-  (key :pointer))
+(cffi:defcfun ("PyDict_DelItem" pydict-delitem) :int
+  (pydict pyobject)
+  (key pyobject))
 
 (cffi:defcfun ("PyDict_Clear" pydict-clear) :void
-  (pydict :pointer))
+  (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Keys" pydict-keys) :pointer
-  (pydict :pointer))
+(cffi:defcfun ("PyDict_Keys" pydict-keys) pyobject
+  (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Values" pydict-values) :pointer
-  (pydict :pointer))
+(cffi:defcfun ("PyDict_Values" pydict-values) pyobject
+  (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Values" pydict-items) :pointer
-  (pydict :pointer))
+(cffi:defcfun ("PyDict_Items" pydict-items) pyobject
+  (pydict pyobject))
 
 (cffi:defcfun ("PyDict_Size" pydict-size) :size
-  (pydict :pointer))
+  (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Copy" pydict-copy) :pointer
-  (pydict :pointer))
+(cffi:defcfun ("PyDict_Copy" pydict-copy) pyobject
+  (pydict pyobject))
 
 (cffi:defcfun ("PyDict_Contains" pydict-contains) :bool
-  (pydict :pointer)
-  (key :pointer))
+  (pydict pyobject)
+  (key pyobject))
 
 ;;; PyImport
 
-(cffi:defcfun ("PyImport_GetModule" pyimport-getmodule) :pointer
-  (pyobject :pointer))
+(cffi:defcfun ("PyImport_GetModule" pyimport-getmodule) pyobject
+  (pyobject pyobject))
 
 ;;; Initialization
 
@@ -308,11 +323,39 @@
   (t (:or (:default "libpython3.11")
           (:default "libpython3.11"))))
 
+;; Load Python as a shared library if its foreign symbols aren't available yet.
 (unless (cffi:foreign-symbol-pointer "Py_IsInitialized")
   (cffi:use-foreign-library libpython))
 
+;; Initialize Python if it isn't already initialized.
 (unless (python-initializedp)
   (python-initialize-ex nil))
+
+;; Release the global interpreter lock if we are holding it right now.  Store
+;; the Python thread in a special variable so that we can restore it later.
+(defvar *python-thread*
+  (if (python-gil-check)
+      (python-save-thread)
+      (let ((gil-state (python-gil-ensure)))
+        (unwind-protect (python-current-thread)
+          (python-gil-release gil-state)))))
+
+(when (python-gil-check)
+  (error "~%Failed to release the global interpreter lock."))
+
+(defvar *global-interpreter-lock-held* nil)
+
+(defun call-with-global-interpreter-lock-held (thunk)
+  (if *global-interpreter-lock-held*
+      (funcall thunk)
+      (let ((*global-interpreter-lock-held* t))
+        (python-restore-thread *python-thread*)
+        (unwind-protect (funcall thunk)
+          (let ((thread (python-save-thread)))
+            (assert (cffi:pointer-eq thread *python-thread*)))))))
+
+(defmacro with-global-interpreter-lock-held (&body body)
+  `(call-with-global-interpreter-lock-held (lambda () ,@body)))
 
 ;;; Constants (Copied from include/python3.11/cpython/*.h)
 ;;;
@@ -447,13 +490,6 @@
 
 ;;; Pointers and Slots
 
-(deftype pyobject ()
-  "A raw reference to a Python object."
-  'cffi:foreign-pointer)
-
-(defun pyobject-address (pyobject)
-  (cffi:pointer-address pyobject))
-
 (declaim (pyobject *type-pyobject* *object-pyobject*))
 
 (defparameter *type-pyobject*
@@ -489,10 +525,11 @@
   "The byte offset from the start of a Python object to the slot holding its type.")
 
 (defun pyobject-pytype (pyobject)
+  "Returns the type PyObject of the supplied PyObject."
   (declare (cffi:foreign-pointer pyobject))
   (cffi:mem-ref pyobject :pointer *pyobject-type-offset*))
 
-(unless (cffi:pointer-eq (pyobject-pytype *object-pyobject*) *type-pyobject*)
+(unless (pyobject-eq (pyobject-pytype *object-pyobject*) *type-pyobject*)
   (error "Failed to determine the type offset of Python objects."))
 
 (defparameter *pyobject-refcount-offset*

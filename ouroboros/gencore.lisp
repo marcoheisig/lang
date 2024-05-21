@@ -15,7 +15,7 @@
 (sb-alien:define-alien-callable ("posix_argv" %posix-argv) sb-alien:void ())
 
 (defun load-ouroboros ()
-  (handler-case (asdf:load-system :ouroboros)
+  (handler-case (asdf:load-system :ouroboros :force t :verbose t)
     (error (e)
       (format t "Caught error ~A." e)
       (finish-output))))

@@ -14,6 +14,7 @@
   ((:static-file "gencore")
    (:file "packages")
    (:file "readtables")
+   (:file "pyobject")
    (:file "foreign")
    (:file "low-level")
    (:file "mirror-into-lisp")

@@ -8,22 +8,21 @@ Each lispobj must have a finalizer attached that deletes its entry in this
 table so that the garbage collector may eventually clean up the Lisp object.")
 
 (defun make-class-lispobj (class metaclass-lispobj superclass-lispobjs)
-  (let* ((name (class-lispobj-name class))
-         (bases (apply #'pytuple superclass-lispobjs))
-         (dict (class-lispobj-dict class))
-         (args (pytuple name bases dict))
-         (lispobj (pyobject-call-object metaclass-lispobj args)))
-    (when (cffi:null-pointer-p lispobj)
-      (error "Failed to mirror the class ~S into Python." class))
-    (setf (gethash class *lispobj-table*)
-          lispobj)
-    (setf (gethash (pyobject-address lispobj) *python-object-table*)
-          class)
-    (pyobject-decref args)
-    (pyobject-decref dict)
-    (pyobject-decref bases)
-    (pyobject-decref name)
-    lispobj))
+  (with-global-interpreter-lock-held
+    (let* ((name (class-lispobj-name class))
+           (bases (apply #'pytuple superclass-lispobjs))
+           (dict (class-lispobj-dict class))
+           (args (pytuple name bases dict))
+           (lispobj (pyobject-call-object metaclass-lispobj args)))
+      (setf (gethash class *lispobj-table*)
+            lispobj)
+      (setf (gethash (pyobject-address lispobj) *python-object-table*)
+            class)
+      (pyobject-decref args)
+      (pyobject-decref dict)
+      (pyobject-decref bases)
+      (pyobject-decref name)
+      lispobj)))
 
 (defun class-lispobj-name (class)
   (let* ((symbol (class-name class))
@@ -41,21 +40,23 @@ table so that the garbage collector may eventually clean up the Lisp object.")
 (defun class-lispobj-dict (class)
   "Returns a Python dictionary that describes all the methods and attributes of
 the supplied class."
-  (let ((pydict (pydict-new)))
-    ;; __repr__
-    ;; __str__
-    ;; __doc__
-    pydict))
+  (with-global-interpreter-lock-held
+    (let ((pydict (pydict-new)))
+      ;; __repr__
+      ;; __str__
+      ;; __doc__
+      pydict)))
 
 (defun make-instance-lispobj (object class-lispobj)
-  (let ((lispobj (pyobject-call-no-args class-lispobj)))
-    (when (cffi:null-pointer-p lispobj)
-      (error "Failed to mirror the object ~S into Python." object))
-    (setf (gethash object *lispobj-table*)
-          lispobj)
-    (setf (gethash (cffi:pointer-address lispobj) *python-object-table*)
-          object)
-    lispobj))
+  (with-global-interpreter-lock-held
+    (let ((lispobj (pyobject-call-no-args class-lispobj)))
+      (when (cffi:null-pointer-p lispobj)
+        (error "Failed to mirror the object ~S into Python." object))
+      (setf (gethash object *lispobj-table*)
+            lispobj)
+      (setf (gethash (cffi:pointer-address lispobj) *python-object-table*)
+            object)
+      lispobj)))
 
 (defclass proto-standard-class (standard-class)
   ())
@@ -143,10 +144,6 @@ Example:
            ,@(loop for pyvar in pyvars
                    collect
                    `(pyobject-decref ,pyvar)))))))
-
-(declaim (notinline touch))
-
-(defun touch (x) x)
 
 ;;; TODO change-class -> update-dependents -> update PyObject type
 
