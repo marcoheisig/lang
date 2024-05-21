@@ -13,3 +13,23 @@
             (class-name (class-of str))
             (with-pyobjects ((pyobject str))
               (string-from-pyobject pyobject)))))
+
+(defmethod print-object ((tuple python:|tuple|) stream)
+  (print-unreadable-object (tuple stream)
+    (format stream "~A~{ ~A~}"
+            (class-name (class-of tuple))
+            (with-pyobjects ((pytuple tuple))
+              (loop for index below (pytuple-size pytuple)
+                    collect
+                    (mirror-into-lisp
+                     (pytuple-getitem pytuple index)))))))
+
+(defmethod print-object ((list python:|list|) stream)
+  (print-unreadable-object (list stream)
+    (format stream "~A~{ ~A~}"
+            (class-name (class-of list))
+            (with-pyobjects ((pylist list))
+              (loop for index below (pylist-size pylist)
+                    collect
+                    (mirror-into-lisp
+                     (pylist-getitem pylist index)))))))
