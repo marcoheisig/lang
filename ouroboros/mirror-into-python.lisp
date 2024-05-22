@@ -132,21 +132,22 @@ Example:
                  for obvar in obvars
                  collect
                  `(,pyvar (mirror-into-python ,obvar)))))
-    `(let (,@obvar-bindings)
-       (let (,@pyvar-bindings)
-         ;; Increment the refcount of each PyObject, and then touch the
-         ;; corresponding Lisp object so that it doesn't get garbage collected
-         ;; before the refcount is increased.
-         ,@(loop for pyvar in pyvars
-                 for obvar in obvars
-                 collect
-                 `(progn (pyobject-incref ,pyvar)
-                         (touch ,obvar)))
-         (unwind-protect (progn ,@body)
-           ;;Decrement the refcount of each PyObject.
+    `(with-global-interpreter-lock-held
+       (let (,@obvar-bindings)
+         (let (,@pyvar-bindings)
+           ;; Increment the refcount of each PyObject, and then touch the
+           ;; corresponding Lisp object so that it doesn't get garbage collected
+           ;; before the refcount is increased.
            ,@(loop for pyvar in pyvars
+                   for obvar in obvars
                    collect
-                   `(pyobject-decref ,pyvar)))))))
+                   `(progn (pyobject-incref ,pyvar)
+                           (touch ,obvar)))
+           (unwind-protect (progn ,@body)
+             ;;Decrement the refcount of each PyObject.
+             ,@(loop for pyvar in pyvars
+                     collect
+                     `(pyobject-decref ,pyvar))))))))
 
 (cffi:defcallback call-into-lisp :pointer
     ((callable :pointer)

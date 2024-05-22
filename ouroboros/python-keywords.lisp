@@ -52,6 +52,8 @@
   (error "Not yet implemented."))
 
 (defmacro python:|for| (variable iterable &body body)
+  (when (eql iterable 'python:|in|)
+    (setf iterable (first body)))
   (alexandria:with-gensyms (iterator nextp loop-start loop-end)
     `(let ((,iterator (make-iterator ,iterable)))
        (tagbody ,loop-start

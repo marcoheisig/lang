@@ -30,7 +30,7 @@
    "if"
    "import"
    "import-from" ;; newly introduced
-   ;; "in"
+   "in"
    "is"
    "lambda"
    "let" ;; newly introduced

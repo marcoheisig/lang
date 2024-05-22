@@ -343,8 +343,7 @@
 (unless (python-initializedp)
   (python-initialize-ex nil))
 
-;; Release the global interpreter lock if we are holding it right now.  Store
-;; the Python thread in a special variable so that we can restore it later.
+;; Determine the Python thread associated with this Lisp thread.
 (defvar *python-thread*
   (if (python-gil-check)
       (python-save-thread)
@@ -372,6 +371,8 @@
        (python-restore-thread *python-thread*)
        (unwind-protect (funcall thunk)
          (let ((thread (python-save-thread)))
+           ;; Not sure how to deal with multiple Python threads.  For now, we
+           ;; assume there is only one Python thread.
            (assert (cffi:pointer-eq thread *python-thread*))))))))
 
 (defmacro with-global-interpreter-lock-held (&body body)
@@ -520,4 +521,3 @@
 
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
-

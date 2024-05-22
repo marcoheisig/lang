@@ -6,6 +6,7 @@
   ("alexandria"
    "bordeaux-threads"
    "cffi"
+   "cl-ppcre"
    "closer-mop"
    "named-readtables"
    "trivial-garbage")
@@ -13,12 +14,12 @@
   :components
   ((:static-file "gencore")
    (:file "packages")
-   (:file "readtables")
    (:file "pyobject")
    (:file "foreign")
    (:file "low-level")
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
+   (:file "python-syntax")
    (:file "python-builtins")
    (:file "python-keywords")
    (:file "python-methods")
