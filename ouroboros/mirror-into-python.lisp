@@ -135,19 +135,12 @@ Example:
     `(with-global-interpreter-lock-held
        (let (,@obvar-bindings)
          (let (,@pyvar-bindings)
-           ;; Increment the refcount of each PyObject, and then touch the
-           ;; corresponding Lisp object so that it doesn't get garbage collected
-           ;; before the refcount is increased.
-           ,@(loop for pyvar in pyvars
-                   for obvar in obvars
-                   collect
-                   `(progn (pyobject-incref ,pyvar)
-                           (touch ,obvar)))
            (unwind-protect (progn ,@body)
-             ;;Decrement the refcount of each PyObject.
-             ,@(loop for pyvar in pyvars
+             ;; Touch the object to keep it alive, and thereby to keep the
+             ;; reference count of the corresponding pyobject above zero.
+             ,@(loop for obvar in obvars
                      collect
-                     `(pyobject-decref ,pyvar))))))))
+                     `(touch ,obvar))))))))
 
 (cffi:defcallback call-into-lisp :pointer
     ((callable :pointer)
