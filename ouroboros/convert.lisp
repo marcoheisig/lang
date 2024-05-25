@@ -30,7 +30,7 @@ passed to FINALIZE-CONVERSION."))
   (:documentation
    "Declare that the conversion of the supplied object is known, although possibly
 not yet fully initialized.  Registering a converted object this way before
-converting its slots allows for more efficient handling of circularities.")
+converting its slots may allow for more efficient handling of circularities.")
   (:method (strategy object conversion)
     (values)))
 
@@ -113,8 +113,8 @@ slot updates.")
 (defmethod convert :around
     (object (strategy convert-graph))
   (let ((*convert-graph-conversion-in-progress-marker* (list '.conversion-in-progress.))
-        (*convert-graph-table* (make-hash-table :test #'eq))
-        (*convert-graph-slot-updates* (make-hash-table :test #'eq)))
+        (*convert-graph-table* (make-hash-table))
+        (*convert-graph-slot-updates* (make-hash-table)))
     (call-next-method)))
 
 (defmethod convert :after
@@ -130,7 +130,7 @@ slot updates.")
        ;; Determine the converted value of each slot update instance.
        (dolist (slot-update slot-updates)
          (multiple-value-bind (converted-value presentp)
-             (gethash (slot-update-original-value slot-udpate)
+             (gethash (slot-update-original-value slot-update)
                       *convert-graph-table*)
            (when (not presentp)
              (error "Attempting to update a slot that has never been converted."))
@@ -157,12 +157,11 @@ slot updates.")
      slot-specifier
      slot-value)
   (multiple-value-bind (converted presentp)
-      (gethash value *convert-graph-table*)
+      (gethash slot-value *convert-graph-table*)
     (cond
-      ;; If there is no cache entry, convert it and then update the table to
-      ;; the result of the conversion.
+      ;; If there is no cache entry, convert the slot value.
       ((not presentp)
-       (convert-object strategy value))
+       (convert-object strategy slot-value))
       ;; If the child is already being converted, we are dealing with a
       ;; circular reference.  If so, return a dummy object for now and ensure
       ;; that slot is being patched later.
@@ -174,7 +173,7 @@ slot updates.")
        (convert-object-to-dummy strategy slot-value))
       ;; Otherwise the object has already been converted and we can simply
       ;; return the result of that conversion.
-      (t value))))
+      (t slot-value))))
 
 (defmethod register-converted-object
     ((strategy convert-graph) object conversion)

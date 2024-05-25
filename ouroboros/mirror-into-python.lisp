@@ -43,6 +43,7 @@ table so that the garbage collector may eventually clean up the Lisp object.")
 (defun class-lispobj-dict (class)
   "Returns a Python dictionary that describes all the methods and attributes of
 the supplied class."
+  (declare (ignore class)) ;; TODO
   (with-global-interpreter-lock-held
     (let ((pydict (pydict-new)))
       ;; __repr__

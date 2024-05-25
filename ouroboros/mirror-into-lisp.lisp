@@ -156,12 +156,6 @@ triggering the start of the keyword argument portion."
 (setf (gethash 0 *python-object-table*)
       (find-class 'python:|None|))
 
-(defparameter python:|type| (find-class 'python:|type|))
-
-(defparameter python:|object| (find-class 'python:|object|))
-
-(defparameter python:|None| (find-class 'python:|None|))
-
 (defun mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
   (declare (pyobject pyobject))
@@ -215,3 +209,37 @@ triggering the start of the keyword argument portion."
             collect
             (mirror-into-lisp
              (pytuple-getitem bases position))))))
+
+;;; Define all the built-in types.
+
+(defparameter python:|type|      (mirror-into-lisp *type-pyobject*))
+
+(defparameter python:|object|    (mirror-into-lisp *object-pyobject*))
+
+(defparameter python:|None|      (mirror-into-lisp *none-pyobject*))
+
+(defparameter python:|bytearray| (mirror-into-lisp *bytearray-pyobject*))
+
+(defparameter python:|bytes|     (mirror-into-lisp *bytes-pyobject*))
+
+(defparameter python:|complex|   (mirror-into-lisp *complex-pyobject*))
+
+(defparameter python:|dict|      (mirror-into-lisp *dict-pyobject*))
+
+(defparameter python:|float|     (mirror-into-lisp *float-pyobject*))
+
+(defparameter python:|frozenset| (mirror-into-lisp *frozenset-pyobject*))
+
+(defparameter python:|int|       (mirror-into-lisp *long-pyobject*))
+
+(defparameter python:|list|      (mirror-into-lisp *list-pyobject*))
+
+(defparameter python:|range|     (mirror-into-lisp *range-pyobject*))
+
+(defparameter python:|set|       (mirror-into-lisp *set-pyobject*))
+
+(defparameter python:|slice|     (mirror-into-lisp *slice-pyobject*))
+
+(defparameter python:|str|       (mirror-into-lisp *unicode-pyobject*))
+
+(defparameter python:|tuple|     (mirror-into-lisp *tuple-pyobject*))

@@ -508,7 +508,17 @@
 
 ;;; Pointers
 
-(declaim (pyobject *type-pyobject* *object-pyobject*))
+(declaim
+ (pyobject
+  *type-pyobject*
+  *object-pyobject*
+  *none-pyobject*
+  *long-pyobject*
+  *list-pyobject*
+  *tuple-pyobject*
+  *bytes-pyobject*
+  *unicode-pyobject*
+  *dict-pyobject*))
 
 (defparameter *type-pyobject*
   (cffi:foreign-symbol-pointer "PyType_Type"))
@@ -519,5 +529,20 @@
 (defparameter *none-pyobject*
   (cffi:foreign-symbol-pointer "_Py_NoneStruct"))
 
+(defparameter *long-pyobject*
+  (cffi:foreign-symbol-pointer "PyLong_Type"))
+
+(defparameter *list-pyobject*
+  (cffi:foreign-symbol-pointer "PyList_Type"))
+
+(defparameter *tuple-pyobject*
+  (cffi:foreign-symbol-pointer "PyTuple_Type"))
+
+(defparameter *bytes-pyobject*
+  (cffi:foreign-symbol-pointer "PyBytes_Type"))
+
 (defparameter *unicode-pyobject*
   (cffi:foreign-symbol-pointer "PyUnicode_Type"))
+
+(defparameter *dict-pyobject*
+  (cffi:foreign-symbol-pointer "PyDict_Type"))
