@@ -1,4 +1,4 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
 (defparameter *python-object-table*
   (make-hash-table :weakness :value)
@@ -20,11 +20,6 @@ at any time if necessary.")
   (:metaclass funcallable-standard-class)
   (:documentation
    "An object of the Python programming language."))
-
-(defmethod print-object ((python-object python-object) stream)
-  (format stream "#<~A ~16R>"
-          (class-name (class-of python-object))
-          (python-object-pyobject python-object)))
 
 (defmethod shared-initialize :after
     ((python-object python-object)
@@ -125,36 +120,29 @@ triggering the start of the keyword argument portion."
   ()
   (:metaclass funcallable-standard-class))
 
-(defmethod print-object ((python-class python-class) stream)
-  (format stream "#<~A>"
-          (class-name python-class)))
-
 (defmethod validate-superclass
     ((python-class python-class)
      (superclass funcallable-standard-class))
   t)
 
-(defmethod print-object ((python-class python-class) stream)
-  (format stream "#<~A>" (class-name python-class)))
-
-(defclass python:|type| (python-class)
+(defclass python:type (python-class)
   ()
   (:metaclass python-class)
   (:pyobject . #.*type-pyobject*))
 
-(defclass python:|object| (python-object)
+(defclass python:object (python-object)
   ()
-  (:metaclass python:|type|)
+  (:metaclass python:type)
   (:pyobject . #.*object-pyobject*))
 
-(defclass python:|None| (python:|type|)
+(defclass python:none (python:type)
   ()
-  (:metaclass python:|type|)
+  (:metaclass python:type)
   (:pyobject . #.*none-pyobject*))
 
-;; Treat null pointers as None.
+;; Treat null pointers as none.
 (setf (gethash 0 *python-object-table*)
-      (find-class 'python:|None|))
+      (find-class 'python:none))
 
 (defun mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
@@ -164,10 +152,10 @@ triggering the start of the keyword argument portion."
              (class (mirror-into-lisp pytype)))
         (if (pytype-subtypep pytype *type-pyobject*)
             ;; Create a type.
-            (let* ((name (pytype-name-symbol pyobject))
+            (let* ((class-name (pytype-class-name pyobject))
                    (direct-superclasses (pytype-direct-superclasses pyobject)))
               (ensure-class
-               name
+               class-name
                :metaclass class
                :direct-superclasses direct-superclasses
                :pyobject pyobject))
@@ -175,29 +163,21 @@ triggering the start of the keyword argument portion."
             (make-instance class
               :pyobject pyobject)))))
 
-(defun pytype-name-symbol (pytype)
+(defun pytype-class-name (pytype)
   (with-global-interpreter-lock-held
-    (let ((pyname (pytype-qualified-name pytype)))
-      (if (cffi:null-pointer-p pyname)
-          (intern
-           (format nil "UNNAMED-TYPE-~X" (random most-positive-fixnum))
-           "PYTHON")
-          (multiple-value-bind (lisp-name visibility)
-              (string-from-pyobject pyname)
-            (let* ((pymodule-name (pyobject-getattr-string pytype "__module__"))
-                   (module-name
-                     (if (cffi:null-pointer-p pymodule-name)
-                         nil
-                         (string-from-pyobject pymodule-name)))
-                   (symbol-name
-                     (if (or (not module-name)
-                             (string= module-name "builtins"))
-                         lisp-name
-                         (concatenate 'string module-name "." lisp-name)))
-                   (lisp-symbol (intern symbol-name "PYTHON")))
-              (when (eq visibility :external)
-                (export lisp-symbol "PYTHON"))
-              lisp-symbol))))))
+    (let* ((pyname (pytype-qualified-name pytype))
+           (symbol-name (if (cffi:null-pointer-p pyname)
+                            (format nil "UNNAMED-TYPE-~X" (random most-positive-fixnum))
+                            (lispify-pydentifier pyname)))
+           (pymodule-name (pyobject-getattr-string pytype "__module__"))
+           (package-name
+             (if (cffi:null-pointer-p pymodule-name)
+                 nil
+                 (lispify-pydentifier pymodule-name)))
+           (package (or (find-package package-name)
+                        (make-package package-name))))
+      (intern symbol-name package)
+      (intern symbol-name "OUROBOROS.PYTHON"))))
 
 (defun pytype-direct-superclasses (pyobject)
   (declare (cffi:foreign-pointer pyobject))
@@ -210,36 +190,111 @@ triggering the start of the keyword argument portion."
             (mirror-into-lisp
              (pytuple-getitem bases position))))))
 
+(defun lispify-pydentifier (pyunicode)
+  "Converts the Python identifier into a suitable Lisp symbol.
+
+Applies the following rules:
+
+1. Replace underscores by hyphens (foo_bar -> foo-bar), except when they appear
+   at the beginning or the end of the identifier (__foo__ -> __foo__).
+
+2. Convert camel case to hyphenated words (BlockingIOError -> blocking-io-error)
+
+3. Convert all characters to the current print case."
+  (let* ((original (string-from-pyobject pyunicode))
+         (prefix
+           (or (position #\_ original :test-not #'char=)
+               (length original)))
+         (suffix
+           (1+
+            (or (position #\_ original :test-not #'char= :start prefix :from-end t)
+                (- (length original) prefix 1))))
+         ;; Collect the locations of camel case words as (start . end) pairs.
+         (camel-case-words
+           (let ((capitals
+                   (loop for position from prefix below suffix
+                         when (upper-case-p (schar original position))
+                           collect position)))
+             (loop for start in capitals
+                   collect
+                   (cons
+                    start
+                    (or (position-if-not #'lower-case-p original :start (1+ start))
+                        suffix))))))
+    (with-output-to-string (stream)
+      (flet ((copy-verbatim (start end)
+               (write-sequence original stream :start start :end end))
+             (convert (start end)
+               (let ((converter
+                       (ecase (readtable-case *readtable*)
+                         (:upcase #'char-upcase)
+                         (:preserve #'identity)
+                         (:downcase #'char-downcase))))
+                 (loop for position from start below end do
+                   (let ((char (schar original position)))
+                     (write-char
+                      (cond ((char= char #\_) #\-)
+                            ((alpha-char-p char)
+                             (funcall converter char))
+                            (t char))
+                      stream))))))
+        (copy-verbatim 0 prefix)
+        (let ((position prefix))
+          (loop for ((start . end) . rest) on camel-case-words do
+            (convert position start)
+            (convert start end)
+            (when (and
+                   ;; Must not be the end of the original.
+                   (< end suffix)
+                   ;; Must be followed by an alpha char.
+                   (alpha-char-p (schar original end))
+                   ;; If it has size one, must not be followed by another camel
+                   ;; case word of size larger than one.
+                   (or (> (- end start) 1)
+                       (and rest
+                            (destructuring-bind (next-start . next-end) (first rest)
+                              (> (- next-end next-start) 1)))))
+              (write-char #\- stream))
+            (setf position end))
+          (convert position suffix))
+        (copy-verbatim suffix (length original))))))
+
 ;;; Define all the built-in types.
 
-(defparameter python:|type|      (mirror-into-lisp *type-pyobject*))
+(defparameter python:bool (mirror-into-lisp *bool-pyobject*))
 
-(defparameter python:|object|    (mirror-into-lisp *object-pyobject*))
+(defparameter python:bytearray (mirror-into-lisp *bytearray-pyobject*))
 
-(defparameter python:|None|      (mirror-into-lisp *none-pyobject*))
+(defparameter python:bytes (mirror-into-lisp *bytes-pyobject*))
 
-(defparameter python:|bytearray| (mirror-into-lisp *bytearray-pyobject*))
+(defparameter python::|builtin_function_or_method| (mirror-into-lisp *pycfunction-pyobject*))
 
-(defparameter python:|bytes|     (mirror-into-lisp *bytes-pyobject*))
+(defparameter python:complex (mirror-into-lisp *complex-pyobject*))
 
-(defparameter python:|complex|   (mirror-into-lisp *complex-pyobject*))
+(defparameter python:dict (mirror-into-lisp *dict-pyobject*))
 
-(defparameter python:|dict|      (mirror-into-lisp *dict-pyobject*))
+(defparameter python:float (mirror-into-lisp *float-pyobject*))
 
-(defparameter python:|float|     (mirror-into-lisp *float-pyobject*))
+(defparameter python:frozenset (mirror-into-lisp *frozenset-pyobject*))
 
-(defparameter python:|frozenset| (mirror-into-lisp *frozenset-pyobject*))
+(defparameter python:int (mirror-into-lisp *long-pyobject*))
 
-(defparameter python:|int|       (mirror-into-lisp *long-pyobject*))
+(defparameter python:list (mirror-into-lisp *list-pyobject*))
 
-(defparameter python:|list|      (mirror-into-lisp *list-pyobject*))
+(defparameter python:module (mirror-into-lisp *module-pyobject*))
 
-(defparameter python:|range|     (mirror-into-lisp *range-pyobject*))
+(defparameter python:None (mirror-into-lisp *none-pyobject*))
 
-(defparameter python:|set|       (mirror-into-lisp *set-pyobject*))
+(defparameter python:object (mirror-into-lisp *object-pyobject*))
 
-(defparameter python:|slice|     (mirror-into-lisp *slice-pyobject*))
+(defparameter python:range (mirror-into-lisp *range-pyobject*))
 
-(defparameter python:|str|       (mirror-into-lisp *unicode-pyobject*))
+(defparameter python:set (mirror-into-lisp *set-pyobject*))
 
-(defparameter python:|tuple|     (mirror-into-lisp *tuple-pyobject*))
+(defparameter python:slice (mirror-into-lisp *slice-pyobject*))
+
+(defparameter python:str (mirror-into-lisp *unicode-pyobject*))
+
+(defparameter python:tuple (mirror-into-lisp *tuple-pyobject*))
+
+(defparameter python:type (mirror-into-lisp *type-pyobject*))

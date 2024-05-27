@@ -1,4 +1,4 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
 (defclass lispify ()
   ())
@@ -22,20 +22,20 @@
 
 (defmethod convert-object
     ((strategy lispify)
-     (object python:|object|))
+     (object python:object))
   (error "Don't know how to convert ~S to a Lisp object."
          object))
 
 (defmethod convert-object
     ((strategy lispify)
-     (int python:|int|))
+     (int python:int))
   (with-pyobjects ((pylong int))
     ;; TODO handle integers that are longer than long.
     (pylong-as-long pylong)))
 
 (defmethod convert-object
     ((strategy lispify)
-     (list python:|list|))
+     (list python:list))
   (with-pyobjects ((pylist list))
     (let* ((size (pylist-size pylist))
            (vector (make-array size :adjustable t)))
@@ -48,7 +48,7 @@
 
 (defmethod convert-object
     ((strategy lispify)
-     (tuple python:|tuple|))
+     (tuple python:tuple))
   (with-pyobjects ((pytuple tuple))
     (let* ((size (pytuple-size pytuple))
            (list (make-list size)))
@@ -62,18 +62,18 @@
 
 (defmethod convert-object
     ((strategy lispify)
-     (bytes python:|bytes|))
+     (bytes python:bytes))
   (break "TODO"))
 
 (defmethod convert-object
     ((strategy lispify)
-     (str python:|str|))
+     (str python:str))
   (with-pyobjects ((pyunicode str))
     (string-from-pyobject pyunicode)))
 
 (defmethod convert-object
     ((strategy lispify)
-     (dict python:|dict|))
+     (dict python:dict))
   (break "TODO"))
 
 ;; TODO function

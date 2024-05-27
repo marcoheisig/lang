@@ -1,4 +1,4 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
 (defparameter *lispobj-table*
   (make-hash-table)

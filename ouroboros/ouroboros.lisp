@@ -1,10 +1,10 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
-;; Locate or define the Python package named Ouroboros and add some attributes
-;; to it.
+;; Locate or define the ouroboros.lisp package and add some attributes to it.
 
+#+(or)
 (with-global-interpreter-lock-held
-  (let ((module (or (find-module "ouroboros")
-                    (make-module "ouroboros"))))
-    (setf (python:|getattr| module "print")
-          #'print)))
+  (let ((module (or (find-module "ouroboros.lisp")
+                    (make-module "ouroboros.lisp"))))
+    (setf (python:getattr module "print")
+          #'cl:print)))

@@ -1,13 +1,13 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
-(defun python:|getattr| (object attribute)
+(defun python:getattr (object attribute)
   (let ((pyobject (mirror-into-python object))
         (pyattribute
           (pyobject-from-string attribute)))
     (unwind-protect (mirror-into-lisp (pyobject-getattr pyobject pyattribute))
       (pyobject-decref pyattribute))))
 
-(defun python:|setattr| (object attribute value)
+(defun python:setattr (object attribute value)
   (let ((pyobject (mirror-into-python object))
         (pyattribute
           (pyobject-from-string attribute))
@@ -16,189 +16,39 @@
       (unwind-protect (pyobject-setattr pyobject pyattribute pyvalue)
         (pyobject-decref pyattribute)))))
 
-(defun (setf python:|getattr|) (value object attribute)
-  (python:|setattr| object attribute value))
+(defun (setf python:getattr) (value object attribute)
+  (python:setattr object attribute value))
 
-(defmacro python:|import| (module-name &optional (variable module-name))
+(defmacro python:import (module-name &optional (variable module-name))
   `(with-global-interpreter-lock-held
      (defparameter ,variable (find-module ',module-name))))
 
-(defmacro python:|import-from| (module-name &rest variables)
-  (alexandria:with-gensyms (module value)
+(defmacro python:from (module-name &body variables)
+  (when (eq (first variables) 'python:import)
+    (pop variables))
+  `(import-from ',module-name ',variables)
+  (alexandria:with-gensyms (module symbol-table value)
     `(with-global-interpreter-lock-held
-       (let ((,module (find-module ',module-name)))
+       (let* ((,module (find-module ',module-name))
+              (,symbol-table (module-symbol-table ,module)))
          ,@(loop for variable in variables
                  collect
-                 `(let ((,value (python:|getattr| ,module ',variable)))
+                 `(let ((,value (module-symbol-table-lookup ,module ,symbol-table)))
                     (defparameter ,variable ,value)
                     (defun ,variable (&rest arguments)
                       (with-pyobjects ((fn ,value))
                         (pyapply fn arguments)))))))))
+
+(defun module-symbol-table-lookup (module symbol-table symbol)
+  (multiple-value-bind (value presentp)
+      (gethash symbol symbol-table)
+    (when (not presentp)
+      (error "The symbol ~S is not present in the module ~S."
+             symbol module))
+    value))
 
 (defun make-module (module-name)
   (with-global-interpreter-lock-held
     (let ((module (pymodule-new module-name)))
       (unwind-protect (mirror-into-lisp module)
         (pyobject-decref module)))))
-
-(defun find-module (module-name)
-  (with-global-interpreter-lock-held
-    (let* ((pymodulename (pyobject-from-string module-name))
-           (pymodule (pyimport-getmodule pymodulename)))
-      (if (cffi:null-pointer-p pymodule)
-          nil
-          (unwind-protect (mirror-into-lisp pymodule)
-            (pyobject-decref pymodule))))))
-
-(in-package #:python)
-
-(named-readtables:in-readtable python:syntax)
-
-(import-from
- builtins
- ;; Constants
- False
- True
- None
- Ellipsis
- NotImplemented
- ;; Functions
- abs
- aiter
- all
- anext
- any
- ascii
- bin
- bool
- breakpoint
- bytearray
- bytes
- callable
- chr
- classmethod
- compile
- complex
- delattr
- dict
- dir
- divmod
- enumerate
- eval
- exec
- filter
- float
- format
- frozenset
- ;; getattr
- hasattr
- hash
- help
- hex
- id
- input
- int
- isinstance
- issubclass
- iter
- len
- list
- locals
- map
- max
- memoryview
- min
- next
- object
- oct
- open
- ord
- pow
- print
- property
- range
- repr
- reversed
- round
- set
- ;; setattr
- slice
- sorted
- staticmethod
- str
- sum
- super
- tuple type
- vars
- zip
- ;; Exceptions
- BaseException
- BaseExceptionGroup
- Exception
- GeneratorExit
- KeyboardInterrupt
- SystemExit
- ArithmeticError
- AssertionError
- AttributeError
- BufferError
- EOFError
- ImportError
- LookupError
- MemoryError
- NameError
- OSError
- ReferenceError
- RuntimeError
- StopAsyncIteration
- StopIteration
- SyntaxError
- SystemError
- TypeError
- ValueError
- Warning
- FloatingPointError
- OverflowError
- ZeroDivisionError
- BytesWarning
- DeprecationWarning
- EncodingWarning
- FutureWarning
- ImportWarning
- PendingDeprecationWarning
- ResourceWarning
- RuntimeWarning
- SyntaxWarning
- UnicodeWarning
- UserWarning
- BlockingIOError
- ChildProcessError
- ConnectionError
- FileExistsError
- FileNotFoundError
- InterruptedError
- IsADirectoryError
- NotADirectoryError
- PermissionError
- ProcessLookupError
- TimeoutError
- IndentationError
- IndexError
- KeyError
- ModuleNotFoundError
- NotImplementedError
- RecursionError
- UnboundLocalError
- UnicodeError
- BrokenPipeError
- ConnectionAbortedError
- ConnectionRefusedError
- ConnectionResetError
- TabError
- UnicodeDecodeError
- UnicodeEncodeError
- UnicodeTranslateError
- ExceptionGroup
- EnvironmentError
- IOError
- )

@@ -1,24 +1,15 @@
-(cl:in-package #:ouroboros)
-
-(defmacro python:|let| (bindings &body body)
-  (if (null bindings)
-      `(progn ,@body)
-      (destructuring-bind (var form) (first bindings)
-        `(let ((,var ,form))
-           (flet ((,var (&rest args)
-                    (apply ,var args)))
-             (python:|let| ,(rest bindings) ,@body))))))
+(in-package #:ouroboros.internals)
 
 (defun truep (object)
   (with-pyobjects ((pyobject object))
     (pyobject-truep pyobject)))
 
-(defmacro python:|and| (&rest clauses)
+(defmacro python:and (&rest clauses)
   `(if (and ,@(loop for clause in clauses collect `(truep ,clause)))
-       python:|True|
-       python:|False|))
+       python:true
+       python:false))
 
-(defmacro python:|assert| (expression)
+(defmacro python:assert (expression)
   (alexandria:with-gensyms (value)
     `(let ((,value ,expression))
        (unless (truep ,value)
@@ -26,33 +17,33 @@
                 ',expression))
        ,value)))
 
-(defmacro python:|await| (&rest rest)
+(defmacro python:await (&rest rest)
   (declare (ignore rest))
   (error "Not yet implemented."))
 
-(defmacro python:|break| ()
+(defmacro python:break ()
   (error "Encountered break statement outside of a loop."))
 
-(defmacro python:|case| (&body clauses)
+(defmacro python:case (&body clauses)
   (declare (ignore clauses))
   (error "Not yet implemented."))
 
-(defmacro python:|class| (direct-superclasses &body body)
+(defmacro python:class (direct-superclasses &body body)
   (declare (ignore direct-superclasses body))
   (error "Not yet implemented."))
 
-(defmacro python:|continue| ()
+(defmacro python:continue ()
   (error "Encountered continue statement outside of a loop."))
 
-(defmacro python:|def| (name lambda-list &body body)
+(defmacro python:def (name lambda-list &body body)
   `(defun ,name ,lambda-list ,@body))
 
-(defmacro python:|del| (variable)
+(defmacro python:del (variable)
   (declare (ignore variable))
   (error "Not yet implemented."))
 
-(defmacro python:|for| (variable iterable &body body)
-  (when (eql iterable 'python:|in|)
+(defmacro python:for (variable iterable &body body)
+  (when (eql iterable 'python:in)
     (setf iterable (pop body)))
   (alexandria:with-gensyms (iterator nextp loop-start loop-end)
     `(let ((,iterator (make-iterator ,iterable)))
@@ -61,14 +52,14 @@
               (iterator-next ,iterator)
             (when (not ,nextp)
               (go ,loop-end))
-            (macrolet ((python:|continue| ()
+            (macrolet ((python:continue ()
                          `(go ,',loop-start))
-                       (python:|break| ()
+                       (python:break ()
                          `(go ,',loop-end)))
               ,@body))
           (go ,loop-start)
           ,loop-end)
-       python:|None|)))
+       python:none)))
 
 (defun make-iterator (iterable)
   (with-pyobjects ((pyobject iterable))
@@ -78,38 +69,38 @@
   (with-pyobjects ((pyiter iterator))
     (let* ((pynext (pyiter-next pyiter)))
       (if (cffi:null-pointer-p pynext)
-          (values python:|None| nil)
+          (values python:none nil)
           (values (mirror-into-lisp pynext) t)))))
 
-(defmacro python:|if| (test then &optional (else python:|None|))
+(defmacro python:if (test then &optional (else python:none))
   `(if (truep ,test)
        ,then
        ,else))
 
-(defun python:|is| (&rest objects)
+(defun python:is (&rest objects)
   (if (loop for (object . rest) on objects
             until (null rest)
             always (eq object (first rest)))
-      python:|True|
-      python:|False|))
+      python:true
+      python:false))
 
-(defmacro python:|lambda| (lambda-list &body body)
+(defmacro python:lambda (lambda-list &body body)
   `(lambda ,lambda-list ,@body))
 
-(defmacro python:|match| (object &body patterns)
+(defmacro python:match (object &body patterns)
   (declare (ignore object patterns))
   (error "Not yet implemented."))
 
-(defun python:|not| (object)
+(defun python:not (object)
   (with-pyobjects ((pyobject object))
     (if (pyobject-not pyobject)
-        python:|True|
-        python:|False|)))
+        python:True
+        python:False)))
 
-(defmacro python:|or| (&rest clauses)
+(defmacro python:or (&rest clauses)
   `(if (or ,@(loop for clause in clauses collect `(truep ,clause)))
-       python:|True|
-       python:|False|))
+       python:True
+       python:False))
 
-(defun python:|pass| ()
-  python:|None|)
+(defun python:pass ()
+  python:none)

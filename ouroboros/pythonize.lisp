@@ -1,4 +1,4 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
 (defclass pythonize ()
   ())
@@ -33,7 +33,7 @@
 (defmethod finalize-conversion
     ((strategy pythonize-graph)
      (simple-vector simple-vector)
-     (python-list python:|list|)
+     (python-list python:list)
      slots)
   (loop for (value index) in slots do
     (setf (python-list-elt python-list index)

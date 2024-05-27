@@ -1,4 +1,4 @@
-(in-package #:ouroboros)
+(in-package #:ouroboros.internals)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defconstant +pyobject-refcount-immortal+
@@ -102,7 +102,7 @@ flag bits.")
 
 (defparameter +pytype-call-offset+
   (with-global-interpreter-lock-held
-    (let ((callfn (pytype-slotref *type-pyobject* +tp-call+)))
+    (let ((callfn (pytype-slot *type-pyobject* +tp-call+)))
       (assert (not (cffi:null-pointer-p callfn)))
       (loop for offset to 1024 do
         (when (cffi:pointer-eq callfn (cffi:mem-ref *type-pyobject* :pointer offset))
