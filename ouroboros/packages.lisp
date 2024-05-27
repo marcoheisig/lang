@@ -234,8 +234,38 @@
     (:use #:ouroboros.python)
     #2#)
 
+  (defpackage #:ouroboros.internals
+    (:local-nicknames
+     (#:python #:ouroboros.python))
+    (:use #:closer-common-lisp)
+    #3=
+    (:export
+     ;; convert.lisp
+     #:convert
+     #:convert-object
+     #:convert-object-to-dummy
+     #:convert-slot
+     #:register-converted-object
+     #:finalize-conversion
+     #:slot-conversion-original-value
+     #:slot-conversion-converted-value
+     #:slot-conversion-specifier
+     #:convert-once
+     #:convert-tree
+     #:convert-graph
+     ;; lispify.lisp
+     #:lispify
+     #:lispify-once
+     #:lispify-tree
+     #:lispify-graph
+     ;; pythonize.lisp
+     #:pythonize
+     #:pythonize-once
+     #:pythonize-tree
+     #:pythonize-graph))
+
   (defpackage #:ouroboros
-    (:use #:closer-common-lisp #:ouroboros.python)
+    (:use #:closer-common-lisp #:ouroboros.python #:ouroboros.internals)
     ;; Conflicting Symbols
     (:shadow
      #:compile
@@ -293,35 +323,9 @@
           (loop for symbol being the external-symbols of "CL"
                 unless (member symbol exclude)
                   collect symbol)))
-    ;; Export Ouroboros-specific symbols
-    (:export
-     ;; convert.lisp
-     #:convert
-     #:convert-object
-     #:convert-object-to-dummy
-     #:convert-slot
-     #:register-converted-object
-     #:finalize-conversion
-     #:slot-conversion-original-value
-     #:slot-conversion-converted-value
-     #:slot-conversion-specifier
-     #:convert-once
-     #:convert-tree
-     #:convert-graph
-     ;; lispify.lisp
-     #:lispify-once
-     #:lispify-tree
-     #:lispify-graph
-     ;; pythonize.lisp
-     #:pythonize-once
-     #:pythonize-tree
-     #:pythonize-graph))
+    ;; Export Ouroboros symbols
+    #3#)
 
   (defpackage #:ouroboros-user
-    (:use #:ouroboros))
-
-  (defpackage #:ouroboros.internals
-    (:local-nicknames
-     (#:python #:ouroboros.python))
-    (:use #:closer-common-lisp)))
+    (:use #:ouroboros)))
 

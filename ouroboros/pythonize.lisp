@@ -15,6 +15,21 @@
 (defun pythonize (object &optional (strategy 'pythonize-graph))
   (convert object strategy))
 
+(defmethod convert-object
+    ((strategy pythonize)
+     (integer integer))
+  (python-integer-from-lisp-integer integer))
+
+(defmethod convert-object
+    ((strategy pythonize)
+     (float float))
+  (python-float-from-lisp-float float))
+
+(defmethod convert-object
+    ((strategy pythonize)
+     (string string))
+  (python-string-from-lisp-string string))
+
 #+(or)
 (defmethod convert-object
     ((strategy pythonize)

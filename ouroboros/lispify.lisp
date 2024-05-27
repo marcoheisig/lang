@@ -29,9 +29,17 @@
 (defmethod convert-object
     ((strategy lispify)
      (int python:int))
-  (with-pyobjects ((pylong int))
-    ;; TODO handle integers that are longer than long.
-    (pylong-as-long pylong)))
+  (lisp-integer-from-python-integer int))
+
+(defmethod convert-object
+    ((strategy lispify)
+     (float python:float))
+  (lisp-float-from-python-float float))
+
+(defmethod convert-object
+    ((strategy lispify)
+     (str python:str))
+  (lisp-string-from-python-string str))
 
 (defmethod convert-object
     ((strategy lispify)
@@ -64,12 +72,6 @@
     ((strategy lispify)
      (bytes python:bytes))
   (break "TODO"))
-
-(defmethod convert-object
-    ((strategy lispify)
-     (str python:str))
-  (with-pyobjects ((pyunicode str))
-    (string-from-pyobject pyunicode)))
 
 (defmethod convert-object
     ((strategy lispify)
