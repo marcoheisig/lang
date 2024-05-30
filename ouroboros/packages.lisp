@@ -236,7 +236,8 @@
 
   (defpackage #:ouroboros.internals
     (:local-nicknames
-     (#:python #:ouroboros.python))
+     (#:python #:ouroboros.python)
+     (#:python.builtins #:ouroboros.python.builtins))
     (:use #:closer-common-lisp)
     #3=
     (:export
@@ -265,7 +266,12 @@
      #:pythonize-graph))
 
   (defpackage #:ouroboros
-    (:use #:closer-common-lisp #:ouroboros.python #:ouroboros.internals)
+    (:use #:closer-common-lisp
+          #:ouroboros.python
+          #:ouroboros.internals)
+    (:local-nicknames
+     (#:python #:ouroboros.python)
+     (#:python.builtins #:ouroboros.python.builtins))
     ;; Conflicting Symbols
     (:shadow
      #:compile

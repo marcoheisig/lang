@@ -3,7 +3,6 @@
 ;;; Conversion from Lisp to Python
 
 (defun lisp-integer-from-python-integer (python-integer)
-  (declare (python:object python-integer))
   (with-pyobjects ((pyobject python-integer))
     (let ((pylong (pynumber-long pyobject)))
       (unwind-protect (pylong-as-long pylong)
@@ -63,7 +62,7 @@
     (maphash
      (lambda (symbol python-string)
        (unless (eq python-string '.collision.)
-         (let ((value (bootstrap-getattr module python-string)))
+         (let ((value (getattr module python-string)))
            (proclaim `(special ,symbol))
            (setf (symbol-value symbol)
                  value)
@@ -85,7 +84,7 @@
             (unwind-protect (mirror-into-lisp pymodule)
               (pyobject-decref pymodule)))))))
 
-(defun bootstrap-getattr (python-object python-string)
+(defun getattr (python-object python-string)
   "An implementation of getattr that we use to load all built-in Python
 functions (including getattr)."
   (with-pyobjects ((pyobject python-object)
@@ -93,6 +92,13 @@ functions (including getattr)."
     (let ((pyattr (pyobject-getattr pyobject pystring)))
       (unwind-protect (mirror-into-lisp pyattr)
         (pyobject-decref pyattr)))))
+
+(defun (setf getattr) (python-value python-object python-string)
+  (with-pyobjects ((pyvalue python-value)
+                   (pyobject python-object)
+                   (pystring python-string))
+    (pyobject-setattr pyobject pystring pyvalue)
+    python-value))
 
 ;;; Conversion from Python to Lisp
 

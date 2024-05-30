@@ -1,12 +1,12 @@
 (in-package #:ouroboros.internals)
 
-(defparameter *python-object-table*
+(defparameter *mirror-into-lisp-table*
   (make-hash-table :weakness :value)
   "A hash table mapping from integers that are PyObject addresses to the
 corresponding Lisp objects.
 
-Each Lisp object should have a finalizer that decreases the reference count of
-its corresponding PyObject.
+Each Lisp object that is not a mirror object should have a finalizer that
+decreases the reference count of its corresponding PyObject.
 
 Use weak references for the values, because we can recreate the Python object
 at any time if necessary.")
@@ -16,7 +16,8 @@ at any time if necessary.")
     :initarg :pyobject
     :initform (alexandria:required-argument :pyobject)
     :type pyobject
-    :reader python-object-pyobject))
+    :reader python-object-pyobject
+    :reader mirror-into-python))
   (:metaclass funcallable-standard-class)
   (:documentation
    "An object of the Python programming language."))
@@ -33,11 +34,12 @@ finalizer for it, and set its funcallable instance function."
      (pyapply pyobject args)))
   (alexandria:ensure-gethash
    (pyobject-address pyobject)
-   *python-object-table*
+   *mirror-into-lisp-table*
    (register-python-object-finalizer pyobject python-object)))
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
+  (declare (optimize (debug 3)))
   (multiple-value-bind (nargs nkwargs kwstart)
       (labels ((scan-positional (args nargs)
                  (if (null args)
@@ -97,7 +99,31 @@ finalizer for it, and set its funcallable instance function."
      (with-global-interpreter-lock-held
        (pyobject-decref pyobject)))))
 
-(declaim (ftype (function (t)) mirror-into-python))
+(defmacro with-pyobjects (bindings &body body)
+  "Retrieve the PyObject of each supplied Lisp object, increment its reference
+count, execute BODY, and then decrement the reference count.
+
+Example:
+ (with-pyobjects ((pyobject object))
+   (foo pyobject))"
+  (let* ((obvars (loop repeat (length bindings) collect (gensym)))
+         (pyvars (mapcar #'first bindings))
+         (forms (mapcar #'second bindings))
+         (obvar-bindings (mapcar #'list obvars forms))
+         (pyvar-bindings
+           (loop for pyvar in pyvars
+                 for obvar in obvars
+                 collect
+                 `(,pyvar (mirror-into-python ,obvar)))))
+    `(with-global-interpreter-lock-held
+       (let (,@obvar-bindings)
+         (let (,@pyvar-bindings)
+           (unwind-protect (progn ,@body)
+             ;; Touch the object to keep it alive, and thereby to keep the
+             ;; reference count of the corresponding pyobject above zero.
+             ,@(loop for obvar in obvars
+                     collect
+                     `(touch ,obvar))))))))
 
 (defstruct (literal-keyword
             (:constructor literal-keyword)
@@ -141,13 +167,13 @@ triggering the start of the keyword argument portion."
   (:pyobject . #.*none-pyobject*))
 
 ;; Treat null pointers as none.
-(setf (gethash 0 *python-object-table*)
+(setf (gethash 0 *mirror-into-lisp-table*)
       (find-class 'python:none))
 
-(defun mirror-into-lisp (pyobject)
+(defmethod mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
   (declare (pyobject pyobject))
-  (or (gethash (pyobject-address pyobject) *python-object-table*)
+  (or (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
       (let* ((pytype (pyobject-pytype pyobject))
              (class (mirror-into-lisp pytype)))
         (if (pytype-subtypep pytype *type-pyobject*)
@@ -183,8 +209,6 @@ triggering the start of the keyword argument portion."
   (declare (cffi:foreign-pointer pyobject))
   (with-global-interpreter-lock-held
     (let ((bases (pyobject-getattr-string pyobject "__bases__")))
-      (when (cffi:null-pointer-p bases)
-        (error "Couldn't determine the bases of ~S." pyobject))
       (loop for position below (pytuple-size bases)
             collect
             (mirror-into-lisp

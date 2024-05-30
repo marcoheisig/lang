@@ -17,6 +17,7 @@
    (:file "pyobject")
    (:file "foreign")
    (:file "low-level")
+   (:file "generic-functions")
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
    (:file "high-level")

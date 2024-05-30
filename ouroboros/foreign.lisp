@@ -102,7 +102,7 @@
 (cffi:defcfun ("PyByteArray_AsString" pybytearray-as-string) :string
   (pybytearray pyobject))
 
-(cffi:defcfun ("PyByteArray_Resize" pybytearray-resize) :int
+(cffi:defcfun ("PyByteArray_Resize" pybytearray-resize) pystatus
   (pybytearray pyobject)
   (size :size))
 
@@ -131,6 +131,8 @@
   (pybytes-2 pyobject))
 
 ;;; PyCallable
+
+(define-pyobject *pyfunction-pyobject* "PyFunction_Type")
 
 (define-pyobject *pycfunction-pyobject* "PyCFunction_Type")
 
@@ -165,6 +167,30 @@
   (nargsf :size)
   (kwnames pyobject))
 
+(cffi:defcfun ("PyCMethod_New" pycmethod-new) pyobject
+  (pymethoddef :pointer)
+  (pyself pyobject)
+  (pymodule pyobject)
+  (pyclass pyobject))
+
+(defconstant +meth-varargs+ #x0001)
+
+(defconstant +meth-keywords+ #x0002)
+
+(defconstant +meth-noargs+ #x0004)
+
+(defconstant +meth-o+ #x0008)
+
+(defconstant +meth-class+ #x0010)
+
+(defconstant +meth-static+ #x0020)
+
+(defconstant +meth-coexist+ #x0040)
+
+(defconstant +meth-fastcall+ #x0080)
+
+(defconstant +meth-method+ #x0200)
+
 ;;; PyComplex
 
 (define-pyobject *complex-pyobject* "PyComplex_Type")
@@ -189,12 +215,12 @@
   (pydict pyobject)
   (key pyobject))
 
-(cffi:defcfun ("PyDict_SetItem" pydict-setitem) :int
+(cffi:defcfun ("PyDict_SetItem" pydict-setitem) pystatus
   (pydict pyobject)
   (key pyobject)
   (value pyobject))
 
-(cffi:defcfun ("PyDict_DelItem" pydict-delitem) :int
+(cffi:defcfun ("PyDict_DelItem" pydict-delitem) pystatus
   (pydict pyobject)
   (key pyobject))
 
@@ -339,7 +365,7 @@
   (pylist pyobject)
   (position :size))
 
-(cffi:defcfun ("PyList_SetItem" pylist-setitem) :int
+(cffi:defcfun ("PyList_SetItem" pylist-setitem) pystatus
   (pylist pyobject)
   (position :size)
   (pyvalue pyobject))
@@ -462,6 +488,9 @@
 (cffi:defcfun ("Py_DecRef" pyobject-foreign-decref) :void
   (pyobject pyobject))
 
+(cffi:defcfun ("Py_NewRef" pyobject-newref) pyobject
+  (pyobject pyobject))
+
 (cffi:defcfun ("Py_ReprEnter" pyobject-repr-enter) :bool
   (pyobject pyobject))
 
@@ -484,15 +513,25 @@
   (pyobject pyobject)
   (string :string))
 
-(cffi:defcfun ("PyObject_SetAttr" pyobject-setattr) :int
+(cffi:defcfun ("PyObject_SetAttr" pyobject-setattr) pystatus
   (pyobject pyobject)
   (pystring pyobject)
   (pyvalue pyobject))
 
-(cffi:defcfun ("PyObject_SetAttrString" pyobject-setattr-string) :int
+(declaim (inline (setf pyobject-getattr)))
+(defun (setf pyobject-getattr) (pyvalue pyobject pystring)
+  (pyobject-setattr pyobject pystring pyvalue)
+  pyvalue)
+
+(cffi:defcfun ("PyObject_SetAttrString" pyobject-setattr-string) pystatus
   (pyobject pyobject)
   (string :string)
   (pyvalue pyobject))
+
+(declaim (inline (setf pyobject-getattr-string)))
+(defun (setf pyobject-getattr-string) (pyvalue pyobject string)
+  (pyobject-setattr-string pyobject string pyvalue)
+  pyvalue)
 
 (cffi:defcfun ("PyObject_Repr" pyobject-repr) pyobject
   (pyobject pyobject))
@@ -522,6 +561,9 @@
   (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_Size" pyobject-size) :size
+  (pyobject pyobject))
+
+(cffi:defcfun ("_PySys_GetSizeOf" pyobject-sizeof) :size
   (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_GetItem" pyobject-item) pyobject
@@ -656,7 +698,7 @@
   (pytuple pyobject)
   (position :size))
 
-(cffi:defcfun ("PyTuple_SetItem" pytuple-setitem) :int
+(cffi:defcfun ("PyTuple_SetItem" pytuple-setitem) pystatus
   (pytuple pyobject)
   (position :size)
   (pyvalue pyobject))
@@ -674,137 +716,131 @@
 ;;; not taint this project with a C compiler dependency, and those constants
 ;;; are part of Python's stable API.
 
-(defmacro define-typeslots (&body clauses)
-  `(progn ,@(loop for (slotid name) in clauses
-                  collect
-                  `(defconstant ,name ,slotid))))
+(cffi:defcenum typeslot
+  (:bf-getbuffer 01)
+  (:bf-releasebuffer 02)
+  (:mp-ass-subscript 03)
+  (:mp-length 04)
+  (:mp-subscript 05)
+  (:nb-absolute 06)
+  (:nb-add 07)
+  (:nb-and 08)
+  (:nb-bool 09)
+  (:nb-divmod 10)
+  (:nb-float 11)
+  (:nb-floor-divide 12)
+  (:nb-index 13)
+  (:nb-inplace-add 14)
+  (:nb-inplace-and 15)
+  (:nb-inplace-floor-divide 16)
+  (:nb-inplace-lshift 17)
+  (:nb-inplace-multiply 18)
+  (:nb-inplace-or 19)
+  (:nb-inplace-power 20)
+  (:nb-inplace-remainder 21)
+  (:nb-inplace-rshift 22)
+  (:nb-inplace-subtract 23)
+  (:nb-inplace-true-divide 24)
+  (:nb-inplace-xor 25)
+  (:nb-int 26)
+  (:nb-invert 27)
+  (:nb-lshift 28)
+  (:nb-multiply 29)
+  (:nb-negative 30)
+  (:nb-or 31)
+  (:nb-positive 32)
+  (:nb-power 33)
+  (:nb-remainder 34)
+  (:nb-rshift 35)
+  (:nb-subtract 36)
+  (:nb-true-divide 37)
+  (:nb-xor 38)
+  (:sq-ass-item 39)
+  (:sq-concat 40)
+  (:sq-contains 41)
+  (:sq-inplace-concat 42)
+  (:sq-inplace-repeat 43)
+  (:sq-item 44)
+  (:sq-length 45)
+  (:sq-repeat 46)
+  (:tp-alloc 47)
+  (:tp-base 48)
+  (:tp-bases 49)
+  (:tp-call 50)
+  (:tp-clear 51)
+  (:tp-dealloc 52)
+  (:tp-del 53)
+  (:tp-descr-get 54)
+  (:tp-descr-set 55)
+  (:tp-doc 56)
+  (:tp-getattr 57)
+  (:tp-getattro 58)
+  (:tp-hash 59)
+  (:tp-init 60)
+  (:tp-is-gc 61)
+  (:tp-iter 62)
+  (:tp-iternext 63)
+  (:tp-methods 64)
+  (:tp-new 65)
+  (:tp-repr 66)
+  (:tp-richcompare 67)
+  (:tp-setattr 68)
+  (:tp-setattro 69)
+  (:tp-str 70)
+  (:tp-traverse 71)
+  (:tp-members 72)
+  (:tp-getset 73)
+  (:tp-free 74)
+  (:nb-matrix-multiply 75)
+  (:nb-inplace-matrix-multiply 76)
+  (:am-await 77)
+  (:am-aiter 78)
+  (:am-anext 79)
+  (:tp-finalize 80)
+  (:am-send 81))
 
-(define-typeslots
-  (01 +bf-getbuffer+)
-  (02 +bf-releasebuffer+)
-  (03 +mp-ass-subscript+)
-  (04 +mp-length+)
-  (05 +mp-subscript+)
-  (06 +nb-absolute+)
-  (07 +nb-add+)
-  (08 +nb-and+)
-  (09 +nb-bool+)
-  (10 +nb-divmod+)
-  (11 +nb-float+)
-  (12 +nb-floor-divide+)
-  (13 +nb-index+)
-  (14 +nb-inplace-add+)
-  (15 +nb-inplace-and+)
-  (16 +nb-inplace-floor-divide+)
-  (17 +nb-inplace-lshift+)
-  (18 +nb-inplace-multiply+)
-  (19 +nb-inplace-or+)
-  (20 +nb-inplace-power+)
-  (21 +nb-inplace-remainder+)
-  (22 +nb-inplace-rshift+)
-  (23 +nb-inplace-subtract+)
-  (24 +nb-inplace-true-divide+)
-  (25 +nb-inplace-xor+)
-  (26 +nb-int+)
-  (27 +nb-invert+)
-  (28 +nb-lshift+)
-  (29 +nb-multiply+)
-  (30 +nb-negative+)
-  (31 +nb-or+)
-  (32 +nb-positive+)
-  (33 +nb-power+)
-  (34 +nb-remainder+)
-  (35 +nb-rshift+)
-  (36 +nb-subtract+)
-  (37 +nb-true-divide+)
-  (38 +nb-xor+)
-  (39 +sq-ass-item+)
-  (40 +sq-concat+)
-  (41 +sq-contains+)
-  (42 +sq-inplace-concat+)
-  (43 +sq-inplace-repeat+)
-  (44 +sq-item+)
-  (45 +sq-length+)
-  (46 +sq-repeat+)
-  (47 +tp-alloc+)
-  (48 +tp-base+)
-  (49 +tp-bases+)
-  (50 +tp-call+)
-  (51 +tp-clear+)
-  (52 +tp-dealloc+)
-  (53 +tp-del+)
-  (54 +tp-descr-get+)
-  (55 +tp-descr-set+)
-  (56 +tp-doc+)
-  (57 +tp-getattr+)
-  (58 +tp-getattro+)
-  (59 +tp-hash+)
-  (60 +tp-init+)
-  (61 +tp-is-gc+)
-  (62 +tp-iter+)
-  (63 +tp-iternext+)
-  (64 +tp-methods+)
-  (65 +tp-new+)
-  (66 +tp-repr+)
-  (67 +tp-richcompare+)
-  (68 +tp-setattr+)
-  (69 +tp-setattro+)
-  (70 +tp-str+)
-  (71 +tp-traverse+)
-  (72 +tp-members+)
-  (73 +tp-getset+)
-  (74 +tp-free+)
-  (75 +nb-matrix-multiply+)
-  (76 +nb-inplace-matrix-multiply+)
-  (77 +am-await+)
-  (78 +am-aiter+)
-  (79 +am-anext+)
-  (80 +tp-finalize+)
-  (81 +am-send+))
+(cffi:defcenum tpflags
+  :default
+  (:managed-dict          #.(ash 1 04))
+  (:sequence              #.(ash 1 05))
+  (:mapping               #.(ash 1 06))
+  (:diallow-instantiation #.(ash 1 07))
+  (:immutabletype         #.(ash 1 08))
+  (:heaptype              #.(ash 1 09))
+  (:basetype              #.(ash 1 10))
+  (:have-vectorcall       #.(ash 1 11))
+  (:ready                 #.(ash 1 12))
+  (:readying              #.(ash 1 13))
+  (:have-gc               #.(ash 1 14))
+  (:method-descriptor     #.(ash 1 17))
+  (:valid-version-tag     #.(ash 1 19))
+  (:is-abstract           #.(ash 1 20))
+  (:match-self            #.(ash 1 22))
+  (:long-subclass         #.(ash 1 24))
+  (:list-subclass         #.(ash 1 25))
+  (:tuple-subclass        #.(ash 1 26))
+  (:bytes-subclass        #.(ash 1 27))
+  (:unicode-subclass      #.(ash 1 28))
+  (:dict-subclass         #.(ash 1 29))
+  (:base-exc-subclass     #.(ash 1 30))
+  (:type-subclass         #.(ash 1 31)))
 
-(defmacro define-tpflags (&body clauses)
-  `(progn ,@(loop for (bit name) in clauses
-                  collect
-                  `(defconstant ,name (ash 1 ,bit)))
-          (defun extract-tpflags (flags)
-            (declare (type unsigned-byte flags))
-            (append
-             ,@(loop for (bit name) in clauses
-                     collect
-                     `(when (logbitp ,bit flags)
-                        (list ',name)))))))
+(cffi:defcstruct pytype-slot
+  (id :int)
+  (value :pointer))
 
-(define-tpflags
-  (05 +tpflags-sequence+)
-  (06 +tpflags-mapping+)
-  (07 +tpflags-diallow-instantiation+)
-  (08 +tpflags-immutabletype+)
-  (09 +tpflags-heaptype+)
-  (10 +tpflags-basetype+)
-  (11 +tpflags-have-vectorcall+)
-  (12 +tpflags-ready+)
-  (13 +tpflags-readying+)
-  (14 +tpflags-have-gc+)
-  (17 +tpflags-method-descriptor+)
-  (19 +tpflags-valid-version-tag+)
-  (20 +tpflags-is-abstract+)
-  (24 +tpflags-long-subclass+)
-  (25 +tpflags-list-subclass+)
-  (26 +tpflags-tuple-subclass+)
-  (27 +tpflags-bytes-subclass+)
-  (28 +tpflags-unicode-subclass+)
-  (29 +tpflags-dict-subclass+)
-  (30 +tpflags-base-exc-subclass+)
-  (31 +tpflags-type-subclass+))
-
-(cffi:defcfun ("PyType_FromMetaclass" pytype-from-metaclass) pyobject
-  (pytype-spec :pointer))
-
-(cffi:defcfun ("PyType_GetSlot" pytype-slot) :pointer
-  (pytype pyobject)
-  (slotid :int))
+(cffi:defcstruct pytype-spec
+  (name (:pointer :char))
+  (basicsize :int)
+  (itemsize :int)
+  (flags :uint)
+  (slots (:pointer (:struct pytype-slot))))
 
 (define-pyobject *type-pyobject* "PyType_Type")
+
+(cffi:defcfun ("PyType_GetSlot" pytype-getslot) :pointer
+  (pytype pyobject)
+  (typeslot typeslot))
 
 (cffi:defcfun ("PyType_GetName" pytype-name) pyobject
   (pytype pyobject))
@@ -821,3 +857,94 @@
 (cffi:defcfun ("PyType_IsSubtype" pytype-subtypep) :bool
   (pytype1 pyobject)
   (pytype2 pyobject))
+
+(cffi:defcfun ("PyType_FromSpec" pytype-from-spec) pyobject
+  (pytype-spec :pointer))
+
+(cffi:defcfun ("PyType_FromSpecWithBases" pytype-from-spec-with-bases) pyobject
+  (pytype-spec :pointer)
+  (pybases pyobject))
+
+(cffi:defcfun ("PyType_FromModuleAndSpec" pytype-from-module-and-spec) pyobject
+  (pymodule pyobject)
+  (pytype-spec :pointer)
+  (pybases pyobject))
+
+(cffi:defcfun ("PyType_FromMetaclass" pytype-from-metaclass) pyobject
+  (pymetaclass pyobject)
+  (pymodule pyobject)
+  (pytype-spec :pointer)
+  (pybases pyobject))
+
+(defun make-pytype
+    (name basicsize itemsize flags
+     &rest slots &key &allow-other-keys)
+  (declare (string name)
+           (type (signed-byte 32) basicsize itemsize)
+           (list flags))
+  (let ((id-value-alist '())
+        (flags
+          (apply #'logior
+                   (loop for keyword in flags
+                         collect
+                         (cffi:foreign-enum-value 'tpflags keyword)))))
+    (loop for (keyword value) on slots by #'cddr do
+      (unless (cffi:pointerp value)
+        (error "Type slot values must be pointers or objects converted to pointers, got ~S."
+               value))
+      (push (cons (cffi:foreign-enum-value 'typeslot keyword) value)
+            id-value-alist))
+    (cffi:with-foreign-string (nameptr name)
+      ;; Convert all the slot specifiers.
+      (cffi:with-foreign-object (slots '(:struct pytype-slot) (1+ (length id-value-alist)))
+        (loop for (id . value) in id-value-alist for index from 0 do
+          (let ((slot (cffi:mem-aptr slots '(:struct pytype-slot) index)))
+            (setf (cffi:foreign-slot-value slot '(:struct pytype-slot) 'id)
+                  id)
+            (setf (cffi:foreign-slot-value slot '(:struct pytype-slot) 'value)
+                  value)))
+        ;; Zero-terminate the array of slots.
+        (let ((slot (cffi:mem-aptr slots '(:struct pytype-slot) (length id-value-alist))))
+          (setf (cffi:foreign-slot-value slot '(:struct pytype-slot) 'id)
+                0)
+          (setf (cffi:foreign-slot-value slot '(:struct pytype-slot) 'value)
+                (cffi:null-pointer)))
+        ;; Populate the pytype-spec structure.
+        (cffi:with-foreign-object (spec '(:struct pytype-spec))
+          (setf (cffi:foreign-slot-value spec '(:struct pytype-spec) 'name)
+                nameptr)
+          (setf (cffi:foreign-slot-value spec '(:struct pytype-spec) 'basicsize)
+                basicsize)
+          (setf (cffi:foreign-slot-value spec '(:struct pytype-spec) 'itemsize)
+                itemsize)
+          (setf (cffi:foreign-slot-value spec '(:struct pytype-spec) 'flags)
+                flags)
+          (setf (cffi:foreign-slot-value spec '(:struct pytype-spec) 'slots)
+                slots)
+          ;; Create a new Python class.
+          (with-global-interpreter-lock-held
+            (pytype-from-spec spec)))))))
+
+#+(or)
+(cffi:defcstruct pymethoddef
+  (name (:pointer :char))
+  (meth :pointer)
+  (flags :int)
+  (doc (:pointer :char)))
+
+#+(or)
+(defun make-pymethod (fn class)
+  (let ((mdef (cffi:foreign-alloc '(:struct pymethoddef))))
+    ;; Name
+    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'name)
+          (cffi:foreign-string-alloc "lisp-method"))
+    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'meth)
+          (cffi:callback __int__))
+    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'flags)
+          (logior +meth-fastcall+ +meth-keywords+ +meth-static+))
+    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'doc)
+          (cffi:foreign-string-alloc "Not yet documented"))
+    (with-global-interpreter-lock-held
+      (pycmethod-new
+       mdef
+       (mirror-into-python class) (cffi:null-pointer) (cffi:null-pointer)))))

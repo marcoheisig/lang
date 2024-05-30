@@ -1,21 +1,5 @@
 (in-package #:ouroboros.internals)
 
-(defun python:getattr (object attribute)
-  (let ((pyobject (mirror-into-python object))
-        (pyattribute
-          (pyobject-from-string attribute)))
-    (unwind-protect (mirror-into-lisp (pyobject-getattr pyobject pyattribute))
-      (pyobject-decref pyattribute))))
-
-(defun python:setattr (object attribute value)
-  (let ((pyobject (mirror-into-python object))
-        (pyattribute
-          (pyobject-from-string attribute))
-        (pyvalue (mirror-into-python value)))
-    (prog1 value
-      (unwind-protect (pyobject-setattr pyobject pyattribute pyvalue)
-        (pyobject-decref pyattribute)))))
-
 (defun (setf python:getattr) (value object attribute)
   (python:setattr object attribute value))
 

@@ -1,5 +1,18 @@
 (in-package #:ouroboros.internals)
 
+(defmethod repr (object)
+  (python-string-from-lisp-string
+   (with-output-to-string (stream)
+     (print object stream))))
+
+(defmethod str (object)
+  (python-string-from-lisp-string
+   (with-output-to-string (stream)
+     (princ object stream))))
+
+(defmethod bool (object)
+  (not (null object)))
+
 ;;; PyBool
 
 ;;; PyByteArray

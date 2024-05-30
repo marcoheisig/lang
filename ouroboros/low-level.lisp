@@ -1,5 +1,14 @@
 (in-package #:ouroboros.internals)
 
+(defconstant +pointer-size+
+  (cffi:foreign-type-size :pointer))
+
+(defconstant +pyobject-header-size+
+  (with-global-interpreter-lock-held (pyobject-sizeof *none-pyobject*)))
+
+(defconstant +pyobject-type-size+
+  (with-global-interpreter-lock-held (pyobject-sizeof *type-pyobject*)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defconstant +pyobject-refcount-immortal+
     (ecase (cffi:foreign-type-size :pointer)
@@ -42,75 +51,7 @@
               (return offset))))
             finally
                (error "Failed to determine the refcount offset of Python objects.")))
-    "The byte offset from the start of a Python object to its reference count.")
-
-  (defconstant +pytype-flags-offset+
-    (with-global-interpreter-lock-held
-      ;; We know some of the flag bits of certain types, and we can use this to
-      ;; find the offset to where the flag bits are stored.
-      (let* ((long (pylong-from-long 42))
-             (tuple (pytuple-new 1))
-             (list (pylist-new 1))
-             (dict (pydict-new))
-             (long-type (pyobject-pytype long))
-             (tuple-type (pyobject-pytype tuple))
-             (list-type (pyobject-pytype list))
-             (dict-type (pyobject-pytype dict))
-             (builtin (logior +tpflags-immutabletype+ +tpflags-basetype+))
-             (primitives
-               (logior +tpflags-long-subclass+
-                       +tpflags-list-subclass+
-                       +tpflags-tuple-subclass+
-                       +tpflags-bytes-subclass+
-                       +tpflags-unicode-subclass+
-                       +tpflags-dict-subclass+
-                       +tpflags-type-subclass+))
-             (offset
-               (loop for offset to 1024 do
-                 (flet ((probe (pytype positive negative)
-                          (let ((bits (cffi:mem-ref pytype :ulong offset)))
-                            (and (zerop (logandc1 bits positive))
-                                 (zerop (logand bits negative))))))
-                   (when (and (probe *object-pyobject* builtin 0)
-                              (probe *type-pyobject*
-                                     (logior builtin +tpflags-type-subclass+)
-                                     (logandc2 primitives +tpflags-type-subclass+))
-                              (probe long-type
-                                     (logior builtin +tpflags-long-subclass+)
-                                     (logandc2 primitives +tpflags-long-subclass+))
-                              (probe tuple-type
-                                     (logior builtin +tpflags-tuple-subclass+)
-                                     (logandc2 primitives +tpflags-tuple-subclass+))
-                              (probe list-type
-                                     (logior builtin +tpflags-list-subclass+ +tpflags-sequence+)
-                                     (logandc2 primitives +tpflags-list-subclass+))
-                              (probe dict-type
-                                     (logior builtin +tpflags-dict-subclass+)
-                                     (logandc2 primitives +tpflags-dict-subclass+)))
-                     (return offset)))
-                     finally
-                        (error "Failed to determine the flags offset of Python objects."))))
-        (pyobject-foreign-decref long)
-        (pyobject-foreign-decref dict)
-        (pyobject-foreign-decref tuple)
-        offset))
-    "The byte offset from the start of a Python object to the slot holding its
-flag bits.")
-  (defun pytype-flags (pytype)
-    (extract-tpflags
-     (cffi:mem-ref pytype :ulong +pytype-flags-offset+))))
-
-(defparameter +pytype-call-offset+
-  (with-global-interpreter-lock-held
-    (let ((callfn (pytype-slot *type-pyobject* +tp-call+)))
-      (assert (not (cffi:null-pointer-p callfn)))
-      (loop for offset to 1024 do
-        (when (cffi:pointer-eq callfn (cffi:mem-ref *type-pyobject* :pointer offset))
-          (return offset))
-            finally
-               (error "Failed to determine the call offset of Python types."))))
-  "The byte offset from the start of a Python object to the slot holding its
-call function, if there is any.")
+    "The byte offset from the start of a Python object to its reference count."))
 
 (defconstant +python-vectorcall-arguments-offset+
   (ash 1 (1- (* 8 (cffi:foreign-type-size :size)))))
