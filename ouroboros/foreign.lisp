@@ -924,27 +924,3 @@
           ;; Create a new Python class.
           (with-global-interpreter-lock-held
             (pytype-from-spec spec)))))))
-
-#+(or)
-(cffi:defcstruct pymethoddef
-  (name (:pointer :char))
-  (meth :pointer)
-  (flags :int)
-  (doc (:pointer :char)))
-
-#+(or)
-(defun make-pymethod (fn class)
-  (let ((mdef (cffi:foreign-alloc '(:struct pymethoddef))))
-    ;; Name
-    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'name)
-          (cffi:foreign-string-alloc "lisp-method"))
-    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'meth)
-          (cffi:callback __int__))
-    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'flags)
-          (logior +meth-fastcall+ +meth-keywords+ +meth-static+))
-    (setf (cffi:foreign-slot-value mdef '(:struct pymethoddef) 'doc)
-          (cffi:foreign-string-alloc "Not yet documented"))
-    (with-global-interpreter-lock-held
-      (pycmethod-new
-       mdef
-       (mirror-into-python class) (cffi:null-pointer) (cffi:null-pointer)))))

@@ -21,7 +21,7 @@
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
    (:file "high-level")
-   (:file "python-methods")
+   (:file "methods")
    (:file "python-builtins")
    (:file "convert")
    (:file "lispify")

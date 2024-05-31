@@ -83,13 +83,14 @@
 
 (defun pytuple (&rest pyobjects)
   "Creates a tuple PyObject from the supplied element PyObjects."
-  (let* ((size (length pyobjects))
-         (tuple (pytuple-new size)))
-    (loop for position below size
-          for pyobject in pyobjects
-          do (pyobject-incref pyobject)
-          do (pytuple-setitem tuple position pyobject))
-    tuple))
+  (with-global-interpreter-lock-held
+    (let* ((size (length pyobjects))
+           (tuple (pytuple-new size)))
+      (loop for position below size
+            for pyobject in pyobjects
+            do (pyobject-incref pyobject)
+            do (pytuple-setitem tuple position pyobject))
+      tuple)))
 
 (defun string-from-pyobject (pyobject)
   "Returns a Lisp string with the same content as the supplied PyObject."

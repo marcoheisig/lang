@@ -39,7 +39,6 @@ finalizer for it, and set its funcallable instance function."
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
-  (declare (optimize (debug 3)))
   (multiple-value-bind (nargs nkwargs kwstart)
       (labels ((scan-positional (args nargs)
                  (if (null args)
