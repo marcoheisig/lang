@@ -1,7 +1,7 @@
 (in-package #:ouroboros.internals)
 
-(defparameter *mirror-into-lisp-table*
-  (make-hash-table :weakness :value)
+(defvar *mirror-into-lisp-table*
+  (make-hash-table :weakness :value :synchronized t)
   "A hash table mapping from integers that are PyObject addresses to the
 corresponding Lisp objects.
 
@@ -173,25 +173,26 @@ triggering the start of the keyword argument portion."
   "Return the Lisp object corresponding to the supplied PyObject pointer."
   (declare (pyobject pyobject))
   (or (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-      (let* ((pytype (pyobject-pytype pyobject))
-             (class (mirror-into-lisp pytype)))
-        (if (pytype-subtypep pytype *type-pyobject*)
-            ;; Create a type.
-            (let* ((class-name (pytype-class-name pyobject))
-                   (direct-superclasses (pytype-direct-superclasses pyobject)))
-              (ensure-class
-               class-name
-               :metaclass class
-               :direct-superclasses direct-superclasses
-               :pyobject pyobject))
-            ;; Create an instance.
-            (make-instance class
-              :pyobject pyobject)))))
+      (with-global-interpreter-lock-held
+        (let* ((pytype (pyobject-type pyobject))
+               (class (mirror-into-lisp pytype)))
+          (if (pytype-subtypep pytype *type-pyobject*)
+              ;; Create a type.
+              (let* ((class-name (pytype-class-name pyobject))
+                     (direct-superclasses (pytype-direct-superclasses pyobject)))
+                (ensure-class
+                 class-name
+                 :metaclass class
+                 :direct-superclasses direct-superclasses
+                 :pyobject pyobject))
+              ;; Create an instance.
+              (make-instance class
+                :pyobject pyobject))))))
 
 (defun pytype-class-name (pytype)
   (with-global-interpreter-lock-held
-    (let* ((pyname (pytype-qualified-name pytype))
-           (symbol-name (if (cffi:null-pointer-p pyname)
+    (let* ((pyname (ignore-errors (pytype-name pytype)))
+           (symbol-name (if (or (null pyname) (cffi:null-pointer-p pyname))
                             (format nil "UNNAMED-TYPE-~X" (random most-positive-fixnum))
                             (lispify-pydentifier pyname)))
            (pymodule-name (pyobject-getattr-string pytype "__module__"))

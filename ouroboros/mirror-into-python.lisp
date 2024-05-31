@@ -1,7 +1,7 @@
 (in-package #:ouroboros.internals)
 
-(defparameter *mirror-into-python-table*
-  (make-hash-table)
+(defvar *mirror-into-python-table*
+  (make-hash-table :synchronized t)
   "A hash table mapping from Lisp objects to their mirror object in the Python
 world.
 

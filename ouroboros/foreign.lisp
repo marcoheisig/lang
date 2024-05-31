@@ -256,8 +256,12 @@
 (cffi:defcfun ("PyErr_SetNone" pyerr-set-none) :void
   (pyobject pyobject))
 
+(cffi:defcfun ("PyErr_SetString" pyerr-set-string) :void
+  (pytype pyobject)
+  (string :string))
+
 (cffi:defcfun ("PyErr_SetObject" pyerr-set-object) :void
-  (pyobject pyobject)
+  (pytype pyobject)
   (pyvalue pyobject))
 
 (cffi:defcfun ("PyErr_Occurred" pyerr-occurred) :pointer)
@@ -557,7 +561,7 @@
 (cffi:defcfun ("PyObject_Dir" pyobject-dir) pyobject
   (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_Type" pyobject-type) pyobject
+(cffi:defcfun ("PyObject_Type" pyobject-type) :pointer
   (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_Size" pyobject-size) :size

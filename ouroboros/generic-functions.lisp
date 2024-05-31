@@ -65,11 +65,19 @@
 
 (define-pycallable __getitem__ (object key))
 
-(cffi:defcallback __sq_getitem__ :bool
+(cffi:defcallback __sq_getitem__ :pointer
     ((pyobject pyobject)
      (index :ssize))
-  (mirror-into-python
-   (__getitem__ (mirror-into-lisp pyobject) index)))
+  (handler-case
+      (mirror-into-python
+       (__getitem__ (mirror-into-lisp pyobject) index))
+    ((or #-sbcl type-error
+         #+sbcl sb-kernel:index-too-large-error
+         sb-int:invalid-array-index-error)
+      ()
+      (with-global-interpreter-lock-held
+        (pyerr-set-none (mirror-into-python (find-class 'python:index-error)))
+        (cffi:null-pointer)))))
 
 (define-pycallable __setitem__ (object index value))
 

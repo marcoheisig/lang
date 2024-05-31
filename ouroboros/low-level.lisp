@@ -27,12 +27,13 @@
              (error "Failed to determine the type offset of Python objects."))
     "The byte offset from the start of a Python object to the slot holding its type.")
 
-  (defun pyobject-pytype (pyobject)
+  #+(or)
+  (defun pyobject-type (pyobject)
     "Returns the type PyObject of the supplied PyObject."
     (declare (cffi:foreign-pointer pyobject))
     (cffi:mem-ref pyobject :pointer +pyobject-type-offset+))
 
-  (unless (pyobject-eq (pyobject-pytype *object-pyobject*) *type-pyobject*)
+  (unless (pyobject-eq (pyobject-type *object-pyobject*) *type-pyobject*)
     (error "Failed to determine the type offset of Python objects."))
 
   (defconstant +pyobject-refcount-offset+
@@ -79,7 +80,7 @@
               (1- value)))))
 
 (defun pyobject-typep (pyobject pytype)
-  (pytype-subtypep (pyobject-pytype pyobject) pytype))
+  (pytype-subtypep (pyobject-type pyobject) pytype))
 
 (defun pytuple (&rest pyobjects)
   "Creates a tuple PyObject from the supplied element PyObjects."

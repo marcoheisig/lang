@@ -3,12 +3,14 @@
 (defmethod __repr__ (object)
   (python-string-from-lisp-string
    (with-output-to-string (stream)
-     (print object stream))))
+     (let ((*print-readably* t))
+       (format stream "~S" object)))))
 
 (defmethod __str__ (object)
   (python-string-from-lisp-string
    (with-output-to-string (stream)
-     (princ object stream))))
+     (let ((*print-readably* nil))
+       (format stream "~S" object)))))
 
 (defmethod __lt__ ((object-1 real) (object-2 real))
   (< object-1 object-2))
@@ -36,6 +38,16 @@
 
 (defmethod __len__ ((sequence sequence))
   (length sequence))
+
+(defmethod __getitem__ ((sequence sequence) index)
+  (elt sequence index))
+
+(defmethod __getitem__ ((hash-table hash-table) key)
+  (gethash key hash-table))
+
+#+(or)
+(defmethod __getitem__ ((array array) index)
+  )
 
 (defmethod __setitem__ ((sequence sequence) index value)
   (setf (elt sequence index) value))
