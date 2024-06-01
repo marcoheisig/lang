@@ -6,7 +6,6 @@
   ("alexandria"
    "bordeaux-threads"
    "cffi"
-   "cl-ppcre"
    "closer-mop"
    "named-readtables"
    "trivial-garbage")
