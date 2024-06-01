@@ -627,9 +627,9 @@
   (pykey pyobject)
   (pyvalue pyobject))
 
-(defun (setf pyobject-item) (pyvalue pyobject pykey)
+(defun (setf pyobject-getitem) (pyvalue pyobject pykey)
   (declare (pyobject pyvalue pyobject pykey))
-  (pyobject-set-item pyobject pykey pyvalue))
+  (pyobject-setitem pyobject pykey pyvalue))
 
 (cffi:defcfun ("PyObject_DelItemString" pyobject-del-item-string) pystatus
   (pyobject pyobject)

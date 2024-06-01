@@ -110,6 +110,13 @@
                    (pystr (python-string-from-lisp-string index)))
     (pysequence-setitem pyobject pystr (mirror-into-python value))))
 
+(remove-method
+ (function  __setitem__)
+ (find-method
+  (function __setitem__)
+  '()
+  (mapcar #'find-class '(python-object python-object t))))
+
 (defmethod __setitem__ ((python-object python-object) (index python-object) value)
   (with-pyobjects ((pyobject python-object)
                    (pyindex index))
