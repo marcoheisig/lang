@@ -6,4 +6,33 @@ into a combination of both.
 
 * Installation
 
-Requires both libpyhton3.11 or later and libsbcl in your library path.
+Requires libsbcl in your library path if you want to load Lisp into Python.
+
+Requires libpython3.11 or later in your library path if you want to load Python
+into Lisp.
+
+* Showcases
+
+#+BEGIN_SRC lisp
+(in-package #:cl-user)
+(sb-ext:add-package-local-nickname '#:python '#:ouroboros.python)
+
+(python:list #(1 2.0 #c(3 4) "5 6"))
+ => [1, 2.0, #C(3 4) "5 6"]
+
+(python:tuple (python:map #'class-of *))
+ => (<class 'ouroboros.common-lisp.fixnum'>,
+     <class 'ouroboros.common-lisp.single-float'>,
+     <class 'ouroboros.common-lisp.complex'>,
+     <class 'ouroboros.sb-kernel.simple-character-string'>)
+
+(python:getitem (python:dir 42) (python:slice 5))
+ => ['__class__', '__bool__', '__and__', '__add__', '__abs__']
+
+(python:isinstance (python:getitem (python:dir 42) 0) (find-class 'python:str))
+ => True
+
+(typep (python:getitem (python:dir 42) 0) 'python:str)
+ => t
+#+END_SRC
+

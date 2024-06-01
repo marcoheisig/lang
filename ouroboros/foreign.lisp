@@ -380,6 +380,28 @@
   (position :size)
   (pyvalue pyobject))
 
+;;; PyMapping
+
+(cffi:defcfun ("PyMapping_Size" pymapping-size) :size
+  (pymapping pyobject))
+
+(cffi:defcfun ("PyMapping_HasKeyString" pymapping-has-key-string) :bool
+  (pymapping pyobject)
+  (key :string))
+
+(cffi:defcfun ("PyMapping_HasKey" pymapping-has-key) :bool
+  (pymapping pyobject)
+  (pykey pyobject))
+
+(cffi:defcfun ("PyMapping_Keys" pymapping-keys) pyobject
+  (pymapping pyobject))
+
+(cffi:defcfun ("PyMapping_Values" pymapping-values) pyobject
+  (pymapping pyobject))
+
+(cffi:defcfun ("PyMapping_Items" pymapping-items) pyobject
+  (pymapping pyobject))
+
 ;;; PyModule
 
 (define-pyobject *module-pyobject* "PyModule_Type")
@@ -596,11 +618,11 @@
 (cffi:defcfun ("_PySys_GetSizeOf" pyobject-sizeof) :size
   (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_GetItem" pyobject-item) pyobject
+(cffi:defcfun ("PyObject_GetItem" pyobject-getitem) pyobject
   (pyobject pyobject)
   (pykey pyobject))
 
-(cffi:defcfun ("PyObject_SetItem" pyobject-set-item) pystatus
+(cffi:defcfun ("PyObject_SetItem" pyobject-setitem) pystatus
   (pyobject pyobject)
   (pykey pyobject)
   (pyvalue pyobject))
@@ -656,7 +678,7 @@
   (start :size)
   (end :size))
 
-(cffi:defcfun ("PySequence_SetItem" pysequence-setitem) pyobject
+(cffi:defcfun ("PySequence_SetItem" pysequence-setitem) pystatus
   (pysequence pyobject)
   (index :size)
   (pyvalue pyobject))
@@ -665,7 +687,7 @@
   (pysequence pyobject)
   (index :size))
 
-(cffi:defcfun ("PySequence_SetSlice" pysequence-setslice) pyobject
+(cffi:defcfun ("PySequence_SetSlice" pysequence-setslice) pystatus
   (pytarget pyobject)
   (start :size)
   (end :size)

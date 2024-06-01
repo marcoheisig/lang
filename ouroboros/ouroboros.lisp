@@ -1,6 +1,6 @@
 (in-package #:ouroboros.internals)
 
-;; Locate or define the ouroboros.lisp package and add some attributes to it.
+;; Locate or define the ouroboros package and add some attributes to it.
 
 #+(or)
 (with-global-interpreter-lock-held

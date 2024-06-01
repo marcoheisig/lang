@@ -1,45 +1,55 @@
 (in-package #:ouroboros.internals)
 
-(defun truep (object)
-  (with-pyobjects ((pyobject object))
-    (pyobject-truep pyobject)))
+;;; Keywords
 
 (defmacro python:and (&rest clauses)
   `(if (and ,@(loop for clause in clauses collect `(truep ,clause)))
        python:true
        python:false))
 
-(defmacro python:assert (expression)
-  (alexandria:with-gensyms (value)
-    `(let ((,value ,expression))
-       (unless (truep ,value)
-         (error "Expression ~S evaluated to False."
-                ',expression))
-       ,value)))
+(defun truep (object)
+  (with-pyobjects ((pyobject object))
+    (pyobject-truep pyobject)))
+
+(defmacro python:as (&rest rest)
+  (declare (ignore rest))
+  (error "The ~S keyword must only appear in ~S forms."
+         'python:as
+         'python:import))
+
+(defmacro python:assert (&rest expressions)
+  `(progn
+     ,@(loop for expression in expressions
+             collect
+             (alexandria:with-gensyms (value)
+               `(let ((,value ,expression))
+                  (unless (truep ,value)
+                    (error "The assertion ~S evaluated to False."
+                           ',expression)))))))
 
 (defmacro python:await (&rest rest)
   (declare (ignore rest))
   (error "Not yet implemented."))
 
-(defmacro python:break ()
-  (error "Encountered break statement outside of a loop."))
-
-(defmacro python:case (&body clauses)
-  (declare (ignore clauses))
-  (error "Not yet implemented."))
+(defmacro python:break (&optional (tag nil))
+  (declare (ignore tag))
+  (error "The ~S keyword must only appear in loops."
+         'python:break))
 
 (defmacro python:class (direct-superclasses &body body)
   (declare (ignore direct-superclasses body))
   (error "Not yet implemented."))
 
-(defmacro python:continue ()
-  (error "Encountered continue statement outside of a loop."))
+(defmacro python:continue (&optional (tag nil))
+  (declare (ignore tag))
+  (error "The ~S keyword must only appear in loops."
+         'python:continue))
 
 (defmacro python:def (name lambda-list &body body)
   `(defun ,name ,lambda-list ,@body))
 
-(defmacro python:del (variable)
-  (declare (ignore variable))
+(defmacro python:del (&rest targets)
+  (declare (ignore targets))
   (error "Not yet implemented."))
 
 (defmacro python:for (variable iterable &body body)
@@ -72,10 +82,23 @@
           (values python:none nil)
           (values (mirror-into-lisp pynext) t)))))
 
-(defmacro python:if (test then &optional (else python:none))
-  `(if (truep ,test)
-       ,then
-       ,else))
+#+(or)
+(defmacro python:if (&whole whole test then &body more-clauses)
+  (let ((clauses '()))
+    (labels ((emit-clause (tokens)
+               (if (null tokens)
+                   (error "Encountered empty clause in ~D" whole)
+                   (let ((test (first tokens))
+                         (body ))
+                     ))))
+      (when more-clauses
+        (case (first more-clauses)
+          (python:elif (emit-clause (rest more-clauses)))
+          (python:else (emit-clause `(python:true ,@(rest more-clauses)))))))
+    )
+  `(cond ((truep ,test) ,then)
+         )
+  )
 
 (defun python:is (&rest objects)
   (if (loop for (object . rest) on objects
@@ -105,6 +128,14 @@
 (defun python:pass ()
   python:none)
 
+;;; Miscellaneous
+
+(defmacro python:case (&body clauses)
+  (declare (ignore clauses))
+  (error "Not yet implemented."))
+
+;;; Operators
+
 (defun python:+ (&rest numbers)
   (if (null numbers)
       0
@@ -129,3 +160,14 @@
   (if (null more-numbers)
       (__floordiv__ number 1)
       (reduce #'__floordiv__ more-numbers :initial-value number)))
+
+;;; Functions
+
+(defun python:getitem (object index)
+  (__getitem__ object index))
+
+(defun (setf python:getitem) (value object index)
+  (__setitem__ object index value))
+
+(defun (setf python:getattr) (value object key)
+  (python:setattr object key value))

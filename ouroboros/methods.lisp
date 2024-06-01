@@ -3,14 +3,12 @@
 (defmethod __repr__ ((object t))
   (python-string-from-lisp-string
    (with-output-to-string (stream)
-     (let ((*print-readably* t))
-       (format stream "~S" object)))))
+     (format stream "~S" object))))
 
 (defmethod __str__ ((object t))
   (python-string-from-lisp-string
    (with-output-to-string (stream)
-     (let ((*print-readably* nil))
-       (format stream "~A" object)))))
+     (format stream "~A" object))))
 
 (defmethod __lt__ ((a real) (b real))
   (< a b))
@@ -76,6 +74,23 @@
 (defmethod __getitem__ ((sequence sequence) index)
   (elt sequence index))
 
+(defmethod __getitem__ ((python-object python-object) (index integer))
+  (with-pyobjects ((pyobject python-object))
+    (mirror-into-lisp
+     (pysequence-getitem pyobject index))))
+
+(defmethod __getitem__ ((python-object python-object) (index string))
+  (with-pyobjects ((pyobject python-object)
+                   (pystr (python-string-from-lisp-string index)))
+    (mirror-into-lisp
+     (pyobject-getitem pyobject pystr))))
+
+(defmethod __getitem__ ((python-object python-object) (index python-object))
+  (with-pyobjects ((pyobject python-object)
+                   (pyindex index))
+    (mirror-into-lisp
+     (pyobject-getitem pyobject pyindex))))
+
 (defmethod __getitem__ ((hash-table hash-table) key)
   (gethash key hash-table))
 
@@ -85,6 +100,20 @@
 
 (defmethod __setitem__ ((sequence sequence) index value)
   (setf (elt sequence index) value))
+
+(defmethod __setitem__ ((python-object python-object) (index integer) value)
+  (with-pyobjects ((pyobject python-object))
+    (pysequence-setitem pyobject index (mirror-into-python value))))
+
+(defmethod __setitem__ ((python-object python-object) (index string) value)
+  (with-pyobjects ((pyobject python-object)
+                   (pystr (python-string-from-lisp-string index)))
+    (pysequence-setitem pyobject pystr (mirror-into-python value))))
+
+(defmethod __setitem__ ((python-object python-object) (index python-object) value)
+  (with-pyobjects ((pyobject python-object)
+                   (pyindex index))
+    (pyobject-setitem pyobject pyindex (mirror-into-python value))))
 
 (defmethod __setitem__ ((hash-table hash-table) key value)
   (setf (gethash key hash-table) value))

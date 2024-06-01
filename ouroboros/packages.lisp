@@ -228,7 +228,10 @@
      #:type
      #:vars
      #:zip
-     #:__import__))
+     #:__import__
+     ;; Auxiliary Functions
+     #:getitem
+     ))
 
   (defpackage #:ouroboros.python.builtins
     (:use #:ouroboros.python)

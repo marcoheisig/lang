@@ -177,7 +177,12 @@ object.")
      (format nil "ouroboros.~A.~A"
              (string-downcase (package-name (symbol-package name)))
              (string-downcase (symbol-name name)))
-     (+ (if classp +pyobject-type-size+ +pyobject-header-size+) +pointer-size+)
+     (cond (classp
+            (+ +pyobject-type-size+ +pointer-size+))
+           ((subtypep class 'function)
+            (+ +pyobject-header-size+ +pointer-size+ +pointer-size+))
+           (t
+            (+ +pyobject-header-size+ +pointer-size+)))
      0
      '(:default :basetype)
      :tp-bases (apply #'pytuple (mapcar #'mirror-into-python supers))
