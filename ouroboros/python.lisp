@@ -104,3 +104,28 @@
 
 (defun python:pass ()
   python:none)
+
+(defun python:+ (&rest numbers)
+  (if (null numbers)
+      0
+      (reduce #'__add__ numbers)))
+
+(defun python:- (number &rest more-numbers)
+  (if (null more-numbers)
+      (__neg__ number)
+      (reduce #'__sub__ more-numbers :initial-value number)))
+
+(defun python:* (&rest numbers)
+  (if (null numbers)
+      1
+      (reduce #'__mul__ numbers)))
+
+(defun python:/ (number &rest more-numbers)
+  (if (null more-numbers)
+      (__invert__ number)
+      (reduce #'__truediv__ more-numbers :initial-value number)))
+
+(defun python:// (number &rest more-numbers)
+  (if (null more-numbers)
+      (__floordiv__ number 1)
+      (reduce #'__floordiv__ more-numbers :initial-value number)))

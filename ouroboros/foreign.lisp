@@ -173,6 +173,12 @@
   (pymodule pyobject)
   (pyclass pyobject))
 
+(defconstant +pointer-size+
+  (cffi:foreign-type-size :pointer))
+
+(defconstant +python-vectorcall-arguments-offset+
+  (ash 1 (1- (* 8 +pointer-size+))))
+
 (defconstant +meth-varargs+ #x0001)
 
 (defconstant +meth-keywords+ #x0002)
@@ -486,10 +492,10 @@
 
 (define-pyobject *object-pyobject* "PyBaseObject_Type")
 
-(cffi:defcfun ("Py_IncRef" pyobject-foreign-incref) :void
+(cffi:defcfun ("Py_IncRef" pyobject-incref) :void
   (pyobject pyobject))
 
-(cffi:defcfun ("Py_DecRef" pyobject-foreign-decref) :void
+(cffi:defcfun ("Py_DecRef" pyobject-decref) :void
   (pyobject pyobject))
 
 (cffi:defcfun ("Py_NewRef" pyobject-newref) pyobject
@@ -549,6 +555,22 @@
 (cffi:defcfun ("PyObject_Bytes" pyobject-bytes) pyobject
   (pyobject pyobject))
 
+(cffi:defcenum pycmp
+  (:lt 0)
+  (:le 1)
+  (:eq 2)
+  (:ne 3)
+  (:gt 4)
+  (:ge 5))
+
+(cffi:defcfun ("PyObject_RichCompare" pyobject-richcompare) pyobject
+  (pyleft pyobject)
+  (pyright pyobject)
+  (cmp pycmp))
+
+(cffi:defcfun ("PyObject_Hash" pyobject-hash) :uint
+  (pyobject pyobject))
+
 (cffi:defcfun ("PyObject_IsTrue" pyobject-truep) :bool
   (pyobject pyobject))
 
@@ -563,6 +585,10 @@
 
 (cffi:defcfun ("PyObject_Type" pyobject-type) :pointer
   (pyobject pyobject))
+
+(declaim (inline pyobject-typep))
+(defun pyobject-typep (pyobject pytype)
+  (pytype-subtypep (pyobject-type pyobject) pytype))
 
 (cffi:defcfun ("PyObject_Size" pyobject-size) :size
   (pyobject pyobject))

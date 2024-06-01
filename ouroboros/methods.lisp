@@ -1,43 +1,77 @@
 (in-package #:ouroboros.internals)
 
-(defmethod __repr__ (object)
+(defmethod __repr__ ((object t))
   (python-string-from-lisp-string
    (with-output-to-string (stream)
      (let ((*print-readably* t))
        (format stream "~S" object)))))
 
-(defmethod __str__ (object)
+(defmethod __str__ ((object t))
   (python-string-from-lisp-string
    (with-output-to-string (stream)
      (let ((*print-readably* nil))
-       (format stream "~S" object)))))
+       (format stream "~A" object)))))
 
-(defmethod __lt__ ((object-1 real) (object-2 real))
-  (< object-1 object-2))
+(defmethod __lt__ ((a real) (b real))
+  (< a b))
 
-(defmethod __le__ ((object-1 real) (object-2 real))
-  (<= object-1 object-2))
+(defmethod __lt__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :lt)))
 
-(defmethod __eq__ ((object-1 number) (object-2 number))
-  (= object-1 object-2))
+(defmethod __le__ ((a real) (b real))
+  (<= a b))
 
-(defmethod __ne__ ((object-1 number) (object-2 number))
-  (/= object-1 object-2))
+(defmethod __le__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :le)))
 
-(defmethod __gt__ ((object-1 real) (object-2 real))
-  (> object-1 object-2))
+(defmethod __eq__ ((a number) (b number))
+  (= a b))
 
-(defmethod __ge__ ((object-1 real) (object-2 real))
-  (>= object-1 object-2))
+(defmethod __eq__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :eq)))
 
-(defmethod __hash__ (object)
+(defmethod __ne__ ((a number) (b number))
+  (/= a b))
+
+(defmethod __ne__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :ne)))
+
+(defmethod __gt__ ((a real) (b real))
+  (> a b))
+
+(defmethod __gt__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :gt)))
+
+(defmethod __ge__ ((a real) (b real))
+  (>= a b))
+
+(defmethod __ge__ ((a python-object) (b python-object))
+  (with-pyobjects ((a a) (b b))
+    (pyobject-richcompare a b :ge)))
+
+(defmethod __hash__ ((object t))
   (let* ((hash (sxhash object))
          (lo (ldb (byte 32 0) hash))
          (hi (ldb (byte #.(ceiling (log most-positive-fixnum 2)) 32) hash)))
-    (logxor lo hi)))
+    (python-integer-from-lisp-integer
+     (logxor lo hi))))
+
+(defmethod __hash__ ((python-object python-object))
+  (with-pyobjects ((pyobject python-object))
+    (python-integer-from-lisp-integer
+     (pyobject-hash pyobject))))
 
 (defmethod __len__ ((sequence sequence))
   (length sequence))
+
+(defmethod __len__ ((python-object python-object))
+  (with-pyobjects ((pyobject python-object))
+    (pyobject-size pyobject)))
 
 (defmethod __getitem__ ((sequence sequence) index)
   (elt sequence index))
@@ -70,6 +104,11 @@
 
 (defmethod __add__ ((a number) (b number))
   (+ a b))
+
+(defmethod __add__ ((a python-object) (b python-object))
+  (with-pyobjects ((pya a) (pyb b))
+    (mirror-into-lisp
+     (pynumber-add pya pyb))))
 
 (defmethod __and__ ((a number) (b number))
   (logand a b))

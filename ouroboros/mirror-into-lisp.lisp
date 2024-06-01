@@ -11,17 +11,6 @@ decreases the reference count of its corresponding PyObject.
 Use weak references for the values, because we can recreate the Python object
 at any time if necessary.")
 
-(defclass python-object (funcallable-standard-object)
-  ((%pyobject
-    :initarg :pyobject
-    :initform (alexandria:required-argument :pyobject)
-    :type pyobject
-    :reader python-object-pyobject
-    :reader mirror-into-python))
-  (:metaclass funcallable-standard-class)
-  (:documentation
-   "An object of the Python programming language."))
-
 (defmethod shared-initialize :after
     ((python-object python-object)
      (slot-names t)
@@ -91,7 +80,7 @@ finalizer for it, and set its funcallable instance function."
 
 (defun register-python-object-finalizer (pyobject python-object)
   (with-global-interpreter-lock-held
-    (pyobject-foreign-incref pyobject))
+    (pyobject-incref pyobject))
   (trivial-garbage:finalize
    python-object
    (lambda ()

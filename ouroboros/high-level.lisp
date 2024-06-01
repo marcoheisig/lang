@@ -3,17 +3,51 @@
 ;;; Conversion from Lisp to Python
 
 (defun lisp-integer-from-python-integer (python-integer)
-  (with-pyobjects ((pyobject python-integer))
-    (let ((pylong (pynumber-long pyobject)))
-      (unwind-protect (pylong-as-long pylong)
-        (pyobject-decref pylong)))))
+  (with-pyobjects ((pylong python-integer))
+    (pylong-as-long pylong)))
 
 (defun lisp-float-from-python-float (python-float)
   (declare (python:object python-float))
-  (with-pyobjects ((pyobject python-float))
-    (let ((pyfloat (pynumber-float pyobject)))
-      (unwind-protect (pyfloat-as-double pyfloat)
-        (pyobject-decref pyfloat)))))
+  (with-pyobjects ((pyfloat python-float))
+    (pyfloat-as-double pyfloat)))
+
+(defun lisp-complex-from-python-complex (python-complex)
+  (declare (python:object python-complex))
+  (with-pyobjects ((pycomplex python-complex))
+    (complex (pycomplex-real-as-double pycomplex)
+             (pycomplex-imag-as-double pycomplex))))
+
+(defun lisp-real-from-python-real (python-real)
+  (declare (python:object python-real))
+  (with-pyobjects ((pyreal python-real))
+    (cond ((pyobject-typep pyreal *long-pyobject*)
+           (lisp-integer-from-python-integer python-real))
+          ((pyobject-typep pyreal *float-pyobject*)
+           (lisp-float-from-python-float python-real))
+          ((pyobject-hasattr-string pyreal "__int__")
+           (mirror-into-lisp (pynumber-long pyreal)))
+          ((pyobject-hasattr-string pyreal "__float__")
+           (mirror-into-lisp (pynumber-float pyreal)))
+          (t
+           (error "Not a Python real: ~S."
+                  python-real)))))
+
+(defun lisp-number-from-python-number (python-number)
+  (declare (python:object python-number))
+  (with-pyobjects ((pynumber python-number))
+    (cond ((pyobject-typep pynumber *long-pyobject*)
+           (lisp-integer-from-python-integer python-number))
+          ((pyobject-typep pynumber *float-pyobject*)
+           (lisp-float-from-python-float python-number))
+          ((pyobject-typep pynumber *complex-pyobject*)
+           (lisp-complex-from-python-complex python-number))
+          ((pyobject-hasattr-string pynumber "__int__")
+           (mirror-into-lisp (pynumber-long pynumber)))
+          ((pyobject-hasattr-string pynumber "__float__")
+           (mirror-into-lisp (pynumber-float pynumber)))
+          (t
+           (error "Not a Python number: ~S."
+                  python-number)))))
 
 (defun lisp-string-from-python-string (python-string)
   (declare (python:object python-string))
@@ -115,6 +149,16 @@ functions (including getattr)."
     (let ((pyfloat (pyfloat-from-double (coerce lisp-float 'double-float))))
       (unwind-protect (mirror-into-lisp pyfloat)
         (pyobject-decref pyfloat)))))
+
+(defun python-complex-from-lisp-complex (lisp-complex)
+  (declare (complex lisp-complex))
+  (with-global-interpreter-lock-held
+    (let ((pycomplex
+            (pycomplex-from-doubles
+             (coerce (realpart lisp-complex) 'double-float)
+             (coerce (imagpart lisp-complex) 'double-float))))
+      (unwind-protect (mirror-into-lisp pycomplex)
+        (pyobject-decref pycomplex)))))
 
 (defun python-string-from-lisp-string (lisp-string)
   (declare (string lisp-string))

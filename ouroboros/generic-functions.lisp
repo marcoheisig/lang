@@ -1,12 +1,9 @@
 (in-package #:ouroboros.internals)
 
-(defgeneric mirror-into-lisp (object))
-
-(defgeneric mirror-into-python (object))
-
-(defmacro define-pycallable (name lambda-list &body body)
+(defmacro define-pycallable (name lambda-list)
   `(progn
-     (defgeneric ,name ,lambda-list ,@body)
+     (defgeneric ,name ,lambda-list
+       (:generic-function-class lispifying-generic-function))
      (cffi:defcallback ,name pyobject
          ,(loop for item in lambda-list
                 collect
@@ -23,19 +20,26 @@
 
 ;;; Comparisons
 
-(defgeneric __lt__ (object-1 object-2))
+(defgeneric __lt__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __le__ (object-1 object-2))
+(defgeneric __le__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __eq__ (object-1 object-2))
+(defgeneric __eq__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __ne__ (object-1 object-2))
+(defgeneric __ne__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __gt__ (object-1 object-2))
+(defgeneric __gt__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __ge__ (object-1 object-2))
+(defgeneric __ge__ (object-1 object-2)
+  (:generic-function-class lispifying-generic-function))
 
-(defgeneric __hash__ (object))
+(defgeneric __hash__ (object)
+  (:generic-function-class lispifying-generic-function))
 
 (cffi:defcallback __hash__ :uint
     ((object pyobject))
@@ -57,7 +61,8 @@
 
 ;;; Sequence and Mapping Methods
 
-(defgeneric __len__ (object))
+(defgeneric __len__ (object)
+  (:generic-function-class lispifying-generic-function))
 
 (cffi:defcallback __len__ :ssize
     ((pyobject pyobject))
@@ -99,7 +104,8 @@
                (mirror-into-lisp pyvalue))
   (values 0))
 
-(defgeneric __contains__ (object value))
+(defgeneric __contains__ (object value)
+  (:generic-function-class lispifying-generic-function))
 
 (cffi:defcallback __contains__ :bool
     ((pyobject pyobject)
@@ -115,7 +121,8 @@
 
 (define-pycallable __and__ (object-1 object-2))
 
-(defgeneric __bool__ (object))
+(defgeneric __bool__ (object)
+  (:generic-function-class lispifying-generic-function))
 
 (cffi:defcallback __bool__ :bool
     ((object pyobject))
