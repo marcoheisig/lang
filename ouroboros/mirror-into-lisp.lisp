@@ -160,23 +160,25 @@ triggering the start of the keyword argument portion."
 
 (defmethod mirror-into-lisp (pyobject)
   "Return the Lisp object corresponding to the supplied PyObject pointer."
-  (declare (pyobject pyobject))
-  (or (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-      (with-global-interpreter-lock-held
-        (let* ((pytype (pyobject-type pyobject))
-               (class (mirror-into-lisp pytype)))
-          (if (pytype-subtypep pytype *type-pyobject*)
-              ;; Create a type.
-              (let* ((class-name (pytype-class-name pyobject))
-                     (direct-superclasses (pytype-direct-superclasses pyobject)))
-                (ensure-class
-                 class-name
-                 :metaclass class
-                 :direct-superclasses direct-superclasses
-                 :pyobject pyobject))
-              ;; Create an instance.
-              (make-instance class
-                :pyobject pyobject))))))
+  (multiple-value-bind (value presentp)
+      (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+    (if presentp
+        value
+        (with-global-interpreter-lock-held
+          (let* ((pytype (pyobject-type pyobject))
+                 (class (mirror-into-lisp pytype)))
+            (if (pytype-subtypep pytype *type-pyobject*)
+                ;; Create a type.
+                (let* ((class-name (pytype-class-name pyobject))
+                       (direct-superclasses (pytype-direct-superclasses pyobject)))
+                  (ensure-class
+                   class-name
+                   :metaclass class
+                   :direct-superclasses direct-superclasses
+                   :pyobject pyobject))
+                ;; Create an instance.
+                (make-instance class
+                  :pyobject pyobject)))))))
 
 (defun pytype-class-name (pytype)
   (with-global-interpreter-lock-held
