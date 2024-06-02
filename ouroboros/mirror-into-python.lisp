@@ -197,9 +197,9 @@ object.")
                    (string-downcase (package-name (symbol-package name)))
                    (string-downcase (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
-    (with-pyobjects ((bases
-                      (move-into-lisp
-                       (apply #'pytuple (mapcar #'mirror-into-python supers)))))
+    (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers)))))
+      (loop for super in supers for index from 0 do
+        (pytuple-setitem bases index (mirror-into-python super)))
       (make-pytype
        type-name
        (cond (classp

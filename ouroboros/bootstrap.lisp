@@ -42,16 +42,6 @@
         (with-global-interpreter-lock-held
           (pyunicode-decode-utf8 char-pointer nbytes errors))))))
 
-(defun pytuple (&rest pyobjects)
-  "Creates a tuple PyObject from the supplied strong references to some PyObjects."
-  (with-global-interpreter-lock-held
-    (let* ((size (length pyobjects))
-           (tuple (pytuple-new size)))
-      (loop for position below size
-            for pyobject in pyobjects
-            do (pytuple-setitem tuple position pyobject))
-      tuple)))
-
 ;;; Lispifying Generic Functions
 
 (declaim (ftype (function (t &optional t) (values t &optional)) lispify))
