@@ -40,19 +40,22 @@ finalizer for it, and register it in the mirror-into-lisp table."
   (alexandria:ensure-gethash
    (pyobject-address pyobject)
    *mirror-into-lisp-table*
-   (register-python-object-finalizer pyobject python-object)))
+   (prog1 python-object
+     (register-python-object-finalizer pyobject python-object))))
 
 (defun register-python-object-finalizer (pyobject python-object)
-  (trivial-garbage:finalize
-   python-object
-   (lambda ()
-     (with-global-interpreter-lock-held
-       #+(or)
-       (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
-               (let ((pyrepr (pyobject-repr pyobject)))
-                 (unwind-protect (string-from-pyobject pyrepr)
-                   (pyobject-decref pyrepr))))
-       (pyobject-decref pyobject)))))
+  ;; No need to add a finalizer for immortal pyobjects.
+  (unless (= (pyobject-refcount pyobject) +pyobject-refcount-immortal+)
+    (trivial-garbage:finalize
+     python-object
+     (lambda ()
+       (with-global-interpreter-lock-held
+         #+(or)
+         (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
+                 (let ((pyrepr (pyobject-repr pyobject)))
+                   (unwind-protect (string-from-pyobject pyrepr)
+                     (pyobject-decref pyrepr))))
+         (pyobject-decref pyobject))))))
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))

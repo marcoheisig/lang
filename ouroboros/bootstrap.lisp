@@ -157,9 +157,7 @@ the PyObject's refcount."
 
 (defun pyobject-refcount (pyobject)
   (declare (cffi:foreign-pointer pyobject))
-  (logand
-   (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
-   +pyobject-refcount-immortal+))
+  (cffi:mem-ref pyobject :size +pyobject-refcount-offset+))
 
 (defun pyobject-fast-incref (pyobject)
   (declare (cffi:foreign-pointer pyobject))
