@@ -33,17 +33,20 @@ object.")
           pyobject))))
 
 (defmethod mirror-into-python ((object t))
-  (pyobject-call-no-args
-   (mirror-into-python
-    (class-of object))))
+  (with-global-interpreter-lock-held
+    (pyobject-call-no-args
+     (mirror-into-python
+      (class-of object)))))
 
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
-  #+(or)
-  (let ((lisp-object (gethash pyobject *mirror-into-python-table*)))
+  (let* ((address (pyobject-address pyobject))
+         (lisp-object (gethash address *mirror-into-lisp-table*)))
+    #+(or)
     (format *trace-output* "~&(Python) Finalizing ~S.~%"
-            lisp-object))
-  (remhash pyobject *mirror-into-python-table*))
+            lisp-object)
+    (remhash address *mirror-into-lisp-table*)
+    (remhash lisp-object *mirror-into-python-table*)))
 
 (cffi:defcallback __call__ pyobject
     ((callable pyobject)
