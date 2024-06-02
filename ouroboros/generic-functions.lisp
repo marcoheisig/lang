@@ -1,5 +1,68 @@
 (in-package #:ouroboros.internals)
 
+(defgeneric mirror-into-lisp (pyobject)
+  (:documentation
+   "Returns a Lisp object that encapsulates the supplied borrowed reference to a
+Python object.  Adds a finalizer to the Lisp object that decrements the
+reference count of the Python object by one once the Lisp object is garbage
+collected."))
+
+(defgeneric move-into-lisp (pyobject)
+  (:documentation
+   "Returns a Lisp object that encapsulates the supplied strong reference to a
+Python object."))
+
+(defgeneric mirror-into-python (lisp-object)
+  (:documentation
+   "Returns a strong reference to a PyObject that encapsulates the supplied Lisp
+object."))
+
+(define-compiler-macro move-into-lisp (&whole whole form)
+  "Rewrite (mirror-into-lisp (mirror-into-python X)) to X."
+  (if (and (listp form)
+           (= 2 (length form))
+           (eql (first form) 'mirror-into-python))
+      (second form)
+      whole))
+
+(define-compiler-macro mirror-into-python (&whole whole form)
+  "Rewrite (mirror-into-python (mirror-into-lisp X)) to X."
+  (if (and (listp form)
+           (= 2 (length form))
+           (eql (first form) 'move-into-lisp))
+      (second form)
+      whole))
+
+(define-condition python-error (serious-condition)
+  ((%type
+    :initform (alexandria:required-argument :type)
+    :initarg :type
+    :reader python-error-type)
+   (%value
+    :initform (alexandria:required-argument :value)
+    :initarg :value
+    :reader python-error-value)
+   (%traceback
+    :initform (alexandria:required-argument :traceback)
+    :initarg :traceback
+    :reader python-error-traceback))
+  (:report
+   (lambda (python-error stream)
+     (format stream "Received a Python exception of type ~A:~%~S"
+             (string (class-name (python-error-type python-error)))
+             (python-error-value python-error)))))
+
+(defun python-error-handler ()
+  (unless (cffi:null-pointer-p (pyerr-occurred))
+    (cffi:with-foreign-objects ((pytype :pointer)
+                                (pyvalue :pointer)
+                                (pytraceback :pointer))
+      (pyerr-fetch pytype pyvalue pytraceback)
+      (error 'python-error
+             :type (move-into-lisp (cffi:mem-ref pytype :pointer))
+             :value (move-into-lisp (cffi:mem-ref pyvalue :pointer))
+             :traceback (move-into-lisp (cffi:mem-ref pytraceback :pointer))))))
+
 (defmacro define-pycallable (name lambda-list)
   `(progn
      (defgeneric ,name ,lambda-list

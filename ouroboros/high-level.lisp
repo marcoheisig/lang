@@ -25,9 +25,9 @@
           ((pyobject-typep pyreal *float-pyobject*)
            (lisp-float-from-python-float python-real))
           ((pyobject-hasattr-string pyreal "__int__")
-           (mirror-into-lisp (pynumber-long pyreal)))
+           (move-into-lisp (pynumber-long pyreal)))
           ((pyobject-hasattr-string pyreal "__float__")
-           (mirror-into-lisp (pynumber-float pyreal)))
+           (move-into-lisp (pynumber-float pyreal)))
           (t
            (error "Not a Python real: ~S."
                   python-real)))))
@@ -42,9 +42,9 @@
           ((pyobject-typep pynumber *complex-pyobject*)
            (lisp-complex-from-python-complex python-number))
           ((pyobject-hasattr-string pynumber "__int__")
-           (mirror-into-lisp (pynumber-long pynumber)))
+           (move-into-lisp (pynumber-long pynumber)))
           ((pyobject-hasattr-string pynumber "__float__")
-           (mirror-into-lisp (pynumber-float pynumber)))
+           (move-into-lisp (pynumber-float pynumber)))
           (t
            (error "Not a Python number: ~S."
                   python-number)))))
@@ -66,18 +66,17 @@
     ;; translation.  The exception is when two or more Lisp-y translations
     ;; collide, in which case these Python identifiers are only associated with
     ;; their literal spelling.
-    (with-pyobjects ((pymodule module))
-      (let* ((pylist (pyobject-dir pymodule))
-             (size (pylist-size pylist)))
+    (with-pyobjects ((pymodule module)
+                     (pylist (move-into-lisp (pyobject-dir pymodule))))
+      (let ((size (pylist-size pylist)))
         (dotimes (position size)
           (let* ((python-string
+                   ;; pylist-getitem returns a borrowed reference.
                    (let ((pystr (pylist-getitem pylist position)))
-                     (unwind-protect (mirror-into-lisp pystr)
-                       (pyobject-decref pystr))))
+                     (mirror-into-lisp pystr)))
                  (python-name
                    (with-pyobjects ((pystring python-string))
-                     (unwind-protect (string-from-pyobject pystring)
-                       (pyobject-decref pystring))))
+                     (string-from-pyobject pystring)))
                  (python-symbol (intern python-name package))
                  (lisp-name (lispify-python-identifier python-string))
                  (lisp-symbol (intern lisp-name package)))
@@ -89,8 +88,7 @@
                 (setf (gethash lisp-symbol symbol-table)
                       python-string))
             (setf (gethash python-symbol symbol-table)
-                  python-string)))
-        (pyobject-decref pylist)))
+                  python-string)))))
     ;; Now traverse the symbol table and associate each symbol with their
     ;; values in that module.
     (maphash
@@ -111,21 +109,16 @@
 
 (defun find-module (module-name)
   (with-global-interpreter-lock-held
-    (with-pyobjects ((pystring (python-string-from-lisp-string module-name)))
-      (let ((pymodule (pyimport-import pystring)))
-        (if (cffi:null-pointer-p pymodule)
-            (error "Found no module named ~S." module-name)
-            (unwind-protect (mirror-into-lisp pymodule)
-              (pyobject-decref pymodule)))))))
+    (with-pyobjects ((pystring (move-into-lisp (pyobject-from-string module-name))))
+      (move-into-lisp (pyimport-import pystring)))))
 
 (defun getattr (python-object python-string)
   "An implementation of getattr that we use to load all built-in Python
 functions (including getattr)."
   (with-pyobjects ((pyobject python-object)
                    (pystring python-string))
-    (let ((pyattr (pyobject-getattr pyobject pystring)))
-      (unwind-protect (mirror-into-lisp pyattr)
-        (pyobject-decref pyattr)))))
+    (move-into-lisp
+     (pyobject-getattr pyobject pystring))))
 
 (defun (setf getattr) (python-value python-object python-string)
   (with-pyobjects ((pyvalue python-value)
@@ -139,33 +132,27 @@ functions (including getattr)."
 (defun python-integer-from-lisp-integer (lisp-integer)
   (declare (integer lisp-integer))
   (with-global-interpreter-lock-held
-    (let ((pylong (pylong-from-long lisp-integer)))
-      (unwind-protect (mirror-into-lisp pylong)
-        (pyobject-decref pylong)))))
+    (move-into-lisp (pylong-from-long lisp-integer))))
 
 (defun python-float-from-lisp-float (lisp-float)
   (declare (float lisp-float))
   (with-global-interpreter-lock-held
-    (let ((pyfloat (pyfloat-from-double (coerce lisp-float 'double-float))))
-      (unwind-protect (mirror-into-lisp pyfloat)
-        (pyobject-decref pyfloat)))))
+    (move-into-lisp
+     (pyfloat-from-double (coerce lisp-float 'double-float)))))
 
 (defun python-complex-from-lisp-complex (lisp-complex)
   (declare (complex lisp-complex))
   (with-global-interpreter-lock-held
-    (let ((pycomplex
-            (pycomplex-from-doubles
-             (coerce (realpart lisp-complex) 'double-float)
-             (coerce (imagpart lisp-complex) 'double-float))))
-      (unwind-protect (mirror-into-lisp pycomplex)
-        (pyobject-decref pycomplex)))))
+    (move-into-lisp
+     (pycomplex-from-doubles
+      (coerce (realpart lisp-complex) 'double-float)
+      (coerce (imagpart lisp-complex) 'double-float)))))
 
 (defun python-string-from-lisp-string (lisp-string)
   (declare (string lisp-string))
   (with-global-interpreter-lock-held
-    (let ((pyobject (pyobject-from-string lisp-string)))
-      (unwind-protect (mirror-into-lisp pyobject)
-        (pyobject-decref pyobject)))))
+    (move-into-lisp
+     (pyobject-from-string lisp-string))))
 
 ;;; ... and now for the magic command that sets up all the rest.
 

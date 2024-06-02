@@ -76,19 +76,19 @@
 
 (defmethod __getitem__ ((python-object python-object) (index integer))
   (with-pyobjects ((pyobject python-object))
-    (mirror-into-lisp
+    (move-into-lisp
      (pysequence-getitem pyobject index))))
 
 (defmethod __getitem__ ((python-object python-object) (index string))
   (with-pyobjects ((pyobject python-object)
                    (pystr (python-string-from-lisp-string index)))
-    (mirror-into-lisp
+    (move-into-lisp
      (pyobject-getitem pyobject pystr))))
 
 (defmethod __getitem__ ((python-object python-object) (index python-object))
   (with-pyobjects ((pyobject python-object)
                    (pyindex index))
-    (mirror-into-lisp
+    (move-into-lisp
      (pyobject-getitem pyobject pyindex))))
 
 (defmethod __getitem__ ((hash-table hash-table) key)
@@ -102,13 +102,15 @@
   (setf (elt sequence index) value))
 
 (defmethod __setitem__ ((python-object python-object) (index integer) value)
-  (with-pyobjects ((pyobject python-object))
-    (pysequence-setitem pyobject index (mirror-into-python value))))
+  (with-pyobjects ((pyobject python-object)
+                   (pyvalue value))
+    (pysequence-setitem pyobject index value)))
 
 (defmethod __setitem__ ((python-object python-object) (index string) value)
   (with-pyobjects ((pyobject python-object)
-                   (pystr (python-string-from-lisp-string index)))
-    (pysequence-setitem pyobject pystr (mirror-into-python value))))
+                   (pystr (python-string-from-lisp-string index))
+                   (pyvalue value))
+    (pysequence-setitem pyobject pystr pyvalue)))
 
 (remove-method
  (function  __setitem__)
@@ -119,8 +121,9 @@
 
 (defmethod __setitem__ ((python-object python-object) (index python-object) value)
   (with-pyobjects ((pyobject python-object)
-                   (pyindex index))
-    (pyobject-setitem pyobject pyindex (mirror-into-python value))))
+                   (pyindex index)
+                   (pyvalue value))
+    (pyobject-setitem pyobject pyindex pyvalue)))
 
 (defmethod __setitem__ ((hash-table hash-table) key value)
   (setf (gethash key hash-table) value))
@@ -143,7 +146,7 @@
 
 (defmethod __add__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
-    (mirror-into-lisp
+    (move-into-lisp
      (pynumber-add pya pyb))))
 
 (defmethod __and__ ((a number) (b number))
@@ -217,7 +220,7 @@
   )
 
 (defmethod __int__ ((integer integer))
-  (mirror-into-lisp
+  (move-into-lisp
    (pylong-from-long integer)))
 
 (defmethod __invert__ ((number number))
@@ -257,53 +260,11 @@
 (defmethod __xor__ ((a integer) (b integer))
   (logxor a b))
 
-;;; PyBool
-
-;;; PyByteArray
-
-;;; PyBytes
-
-;;; PyCallable
-
-;;; PyComplex
-
-;;; PyDict
-
-;;; PyErr
-
-;;; PyFloat
-
-;;; PyFrozenset
-
-;;; PyIter
-
-;;; PyLong
-
-;;; PyList
-
-;;; PyModule
-
-;;; PyNone
-
-;;; PyObject
-
 (defmethod print-object ((python-object python-object) stream)
   (with-pyobjects ((pyobject python-object))
     (let ((repr (pyobject-repr pyobject)))
       (unwind-protect (write-string (string-from-pyobject repr) stream)
         (pyobject-decref repr)))))
-
-;;; PyRange
-
-;;; PySet
-
-;;; PySlice
-
-;;; PyUnicode
-
-;;; PyTuple
-
-;;; PyType
 
 (defmethod print-object ((type python-class) stream)
   (print-unreadable-object (type stream)

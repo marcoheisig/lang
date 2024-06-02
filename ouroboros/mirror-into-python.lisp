@@ -9,24 +9,41 @@ Each mirror object must have a finalizer attached that deletes its entry in
 this table so that the garbage collector may eventually clean up the Lisp
 object.")
 
+(defmethod mirror-into-python :around ((python-object python-object))
+  (let ((pyobject (python-object-pyobject python-object)))
+    (with-global-interpreter-lock-held
+      (pyobject-incref pyobject))
+    ;; Prevent the mirror object from being cleaned up before the PyObject
+    ;; refcount has been incremented.
+    (touch python-object)
+    pyobject))
+
 (defmethod mirror-into-python :around ((object t))
-  (or (gethash object *mirror-into-python-table*)
-      (let ((pyobject (call-next-method)))
-        (setf (gethash object *mirror-into-python-table*)
-              pyobject)
-        (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-              object)
-        pyobject)))
+  (multiple-value-bind (pyobject presentp)
+      (gethash object *mirror-into-python-table*)
+    (if presentp
+        (with-global-interpreter-lock-held
+          (pyobject-incref pyobject)
+          pyobject)
+        (let ((pyobject (call-next-method)))
+          (setf (gethash object *mirror-into-python-table*)
+                pyobject)
+          (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+                object)
+          pyobject))))
 
 (defmethod mirror-into-python ((object t))
-  (with-global-interpreter-lock-held
-    (pyobject-call-no-args
-     (mirror-into-python
-      (class-of object)))))
+  (pyobject-call-no-args
+   (mirror-into-python
+    (class-of object))))
 
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
-  (remhash (mirror-into-lisp pyobject) *mirror-into-python-table*))
+  #+(or)
+  (let ((lisp-object (gethash pyobject *mirror-into-python-table*)))
+    (format *trace-output* "~&(Python) Finalizing ~S.~%"
+            lisp-object))
+  (remhash pyobject *mirror-into-python-table*))
 
 (cffi:defcallback __call__ pyobject
     ((callable pyobject)
@@ -171,32 +188,39 @@ object.")
                       (find-class 'lisp-type)
                       (find-class 'lisp-object))
                   (find-class 't)
-                  (class-direct-superclasses class))))
+                  (class-direct-superclasses class)))
+         (type-name
+           (format nil "ouroboros.~A.~A"
+                   (string-downcase (package-name (symbol-package name)))
+                   (string-downcase (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
-    (make-pytype
-     (format nil "ouroboros.~A.~A"
-             (string-downcase (package-name (symbol-package name)))
-             (string-downcase (symbol-name name)))
-     (cond (classp
-            (+ +pyobject-type-size+ +pointer-size+))
-           ((subtypep class 'function)
-            (+ +pyobject-header-size+ +pointer-size+ +pointer-size+))
-           (t
-            (+ +pyobject-header-size+ +pointer-size+)))
-     0
-     '(:default :basetype)
-     :tp-bases (apply #'pytuple (mapcar #'mirror-into-python supers))
-     :tp-doc (cffi:null-pointer))))
+    (with-pyobjects ((bases
+                      (move-into-lisp
+                       (apply #'pytuple (mapcar #'mirror-into-python supers)))))
+      (make-pytype
+       type-name
+       (cond (classp
+              (+ +pyobject-type-size+ +pointer-size+))
+             ((subtypep class 'function)
+              (+ +pyobject-header-size+ +pointer-size+ +pointer-size+))
+             (t
+              (+ +pyobject-header-size+ +pointer-size+)))
+       0
+       '(:default :basetype)
+       :tp-bases bases
+       :tp-doc (cffi:null-pointer)))))
 
 (defmethod mirror-into-python ((class (eql (find-class 't))))
   *object-pyobject*)
 
 (defmethod mirror-into-python ((class (eql (find-class 'function))))
-  (make-pytype "ouroboros.common_lisp.function"
-               (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
-               0
-               '(:default :basetype)
-               :tp-bases (pytuple (mirror-into-python (find-class 'lisp-object)))
-               :tp-call (cffi:callback __call__)
-               :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
-               :tp-doc (cffi:null-pointer)))
+  (with-pyobjects ((base (find-class 'lisp-object)))
+    (make-pytype
+     "ouroboros.common_lisp.function"
+     (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
+     0
+     '(:default :basetype)
+     :tp-base base
+     :tp-call (cffi:callback __call__)
+     :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
+     :tp-doc (cffi:null-pointer))))

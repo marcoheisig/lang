@@ -11,12 +11,28 @@ decreases the reference count of its corresponding PyObject.
 Use weak references for the values, because we can recreate the Python object
 at any time if necessary.")
 
+(defmethod move-into-lisp (pyobject)
+  (multiple-value-bind (value presentp)
+      (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+    (if presentp
+        (prog1 value
+          (with-global-interpreter-lock-held
+            (pyobject-decref pyobject)))
+        (make-mirror-object :strong-reference pyobject))))
+
+(defmethod mirror-into-lisp (pyobject)
+  (multiple-value-bind (value presentp)
+      (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+    (if presentp
+        value
+        (make-mirror-object :borrowed-reference pyobject))))
+
 (defmethod shared-initialize :after
     ((python-object python-object)
      (slot-names t)
      &key pyobject &allow-other-keys)
-  "Register the Python object in the global Python object table, define a
-finalizer for it, and set its funcallable instance function."
+  "For a supplied Python object, set its funcallable instance function, define a
+finalizer for it, and register it in the mirror-into-lisp table."
   (set-funcallable-instance-function
    python-object
    (lambda (&rest args)
@@ -25,6 +41,18 @@ finalizer for it, and set its funcallable instance function."
    (pyobject-address pyobject)
    *mirror-into-lisp-table*
    (register-python-object-finalizer pyobject python-object)))
+
+(defun register-python-object-finalizer (pyobject python-object)
+  (trivial-garbage:finalize
+   python-object
+   (lambda ()
+     (with-global-interpreter-lock-held
+       #+(or)
+       (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
+               (let ((pyrepr (pyobject-repr pyobject)))
+                 (unwind-protect (string-from-pyobject pyrepr)
+                   (pyobject-decref pyrepr))))
+       (pyobject-decref pyobject)))))
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
@@ -67,7 +95,7 @@ finalizer for it, and set its funcallable instance function."
               do (setf (aref argv (+ 1 nargs index))
                        (argument-pyobject argument)))
         ;; Perform the actual call and mirror the result into Lisp.
-        (mirror-into-lisp
+        (move-into-lisp
          (prog1 (pyobject-vectorcall
                  pycallable
                  (cffi:mem-aptr (sb-sys:vector-sap argv) :pointer 1)
@@ -78,40 +106,22 @@ finalizer for it, and set its funcallable instance function."
            (unless (cffi:null-pointer-p kwnames)
              (pyobject-decref kwnames))))))))
 
-(defun register-python-object-finalizer (pyobject python-object)
-  (with-global-interpreter-lock-held
-    (pyobject-incref pyobject))
-  (trivial-garbage:finalize
-   python-object
-   (lambda ()
-     (with-global-interpreter-lock-held
-       (pyobject-decref pyobject)))))
-
 (defmacro with-pyobjects (bindings &body body)
-  "Retrieve the PyObject of each supplied Lisp object, increment its reference
-count, execute BODY, and then decrement the reference count.
+  "Bind each variable to a borrowed reference to the PyObject corresponding to each
+supplied Lisp object, and execute BODY in an environment that holds the global
+interpreter lock.
 
 Example:
  (with-pyobjects ((pyobject object))
    (foo pyobject))"
-  (let* ((obvars (loop repeat (length bindings) collect (gensym)))
-         (pyvars (mapcar #'first bindings))
-         (forms (mapcar #'second bindings))
-         (obvar-bindings (mapcar #'list obvars forms))
-         (pyvar-bindings
-           (loop for pyvar in pyvars
-                 for obvar in obvars
+  `(with-global-interpreter-lock-held
+     (let* ,(loop for (pyvar form) in bindings
                  collect
-                 `(,pyvar (mirror-into-python ,obvar)))))
-    `(with-global-interpreter-lock-held
-       (let (,@obvar-bindings)
-         (let (,@pyvar-bindings)
-           (unwind-protect (progn ,@body)
-             ;; Touch the object to keep it alive, and thereby to keep the
-             ;; reference count of the corresponding pyobject above zero.
-             ,@(loop for obvar in obvars
-                     collect
-                     `(touch ,obvar))))))))
+                 `(,pyvar (mirror-into-python ,form)))
+       (unwind-protect (progn ,@body)
+         ,@(loop for (pyvar form) in bindings
+                 collect
+                 `(pyobject-decref ,pyvar))))))
 
 (defstruct (literal-keyword
             (:constructor literal-keyword)
@@ -158,27 +168,28 @@ triggering the start of the keyword argument portion."
 (setf (gethash 0 *mirror-into-lisp-table*)
       (find-class 'python:none))
 
-(defmethod mirror-into-lisp (pyobject)
-  "Return the Lisp object corresponding to the supplied PyObject pointer."
-  (multiple-value-bind (value presentp)
-      (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-    (if presentp
-        value
-        (with-global-interpreter-lock-held
-          (let* ((pytype (pyobject-type pyobject))
-                 (class (mirror-into-lisp pytype)))
-            (if (pytype-subtypep pytype *type-pyobject*)
-                ;; Create a type.
-                (let* ((class-name (pytype-class-name pyobject))
-                       (direct-superclasses (pytype-direct-superclasses pyobject)))
-                  (ensure-class
-                   class-name
-                   :metaclass class
-                   :direct-superclasses direct-superclasses
-                   :pyobject pyobject))
-                ;; Create an instance.
-                (make-instance class
-                  :pyobject pyobject)))))))
+(defun make-mirror-object (reference-type pyobject)
+  (with-global-interpreter-lock-held
+    ;; Acquire a strong reference that is released by the finalizer of the
+    ;; resulting mirror object.
+    (ecase reference-type
+      (:strong-reference)
+      (:borrowed-reference
+       (pyobject-incref pyobject)))
+    (let* ((pytype (pyobject-type pyobject))
+           (class (mirror-into-lisp pytype)))
+      (if (pytype-subtypep pytype *type-pyobject*)
+          ;; Create a type.
+          (let* ((class-name (pytype-class-name pyobject))
+                 (direct-superclasses (pytype-direct-superclasses pyobject)))
+            (ensure-class
+             class-name
+             :metaclass class
+             :direct-superclasses direct-superclasses
+             :pyobject pyobject))
+          ;; Create an instance.
+          (make-instance class
+            :pyobject pyobject)))))
 
 (defun pytype-class-name (pytype)
   (with-global-interpreter-lock-held

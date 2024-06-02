@@ -286,31 +286,6 @@
 
 (cffi:defcfun ("PyErr_CheckSignals" pyerr-check-signals) :void)
 
-(define-condition python-error (serious-condition)
-  ((%type
-    :initform (alexandria:required-argument :type)
-    :initarg :type
-    :reader python-error-type)
-   (%value
-    :initform (alexandria:required-argument :value)
-    :initarg :value
-    :reader python-error-value))
-  (:report
-   (lambda (python-error stream)
-     (format stream "Received a Python exception of type ~A:~%~S"
-             (string (class-name (python-error-type python-error)))
-             (python-error-value python-error)))))
-
-(defun python-error-handler ()
-  (unless (cffi:null-pointer-p (pyerr-occurred))
-    (cffi:with-foreign-objects ((pytype :pointer)
-                                (pyvalue :pointer)
-                                (pytraceback :pointer))
-      (pyerr-fetch pytype pyvalue pytraceback)
-      (error 'python-error
-             :type (mirror-into-lisp (cffi:mem-ref pytype :pointer))
-             :value (mirror-into-lisp (cffi:mem-ref pyvalue :pointer))))))
-
 ;;; PyFLoat
 
 (define-pyobject *float-pyobject* "PyFloat_Type")
@@ -341,7 +316,7 @@
 (cffi:defcfun ("PyIter_Check" pyiterp) :bool
   (pyobject pyobject))
 
-(cffi:defcfun ("PyIter_Next" pyiter-next) pyobject
+(cffi:defcfun ("PyIter_Next" pyiter-next) :pointer
   (iterator pyobject))
 
 (cffi:defcfun ("PyIter_Send" pyiter-send) :int

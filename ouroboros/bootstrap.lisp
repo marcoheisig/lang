@@ -1,19 +1,14 @@
 (in-package #:ouroboros.internals)
 
-(defgeneric mirror-into-lisp (object))
-
-(defgeneric mirror-into-python (object))
-
 (defclass python-object (funcallable-standard-object)
-    ((%pyobject
-      :initarg :pyobject
-      :initform (alexandria:required-argument :pyobject)
-      :type pyobject
-      :reader python-object-pyobject
-      :reader mirror-into-python))
-    (:metaclass funcallable-standard-class)
-    (:documentation
-     "An object of the Python programming language."))
+  ((%pyobject
+    :initarg :pyobject
+    :initform (alexandria:required-argument :pyobject)
+    :type pyobject
+    :reader python-object-pyobject))
+  (:metaclass funcallable-standard-class)
+  (:documentation
+   "An object of the Python programming language."))
 
 ;;; Early Object Conversion
 
@@ -48,13 +43,12 @@
           (pyunicode-decode-utf8 char-pointer nbytes errors))))))
 
 (defun pytuple (&rest pyobjects)
-  "Creates a tuple PyObject from the supplied element PyObjects."
+  "Creates a tuple PyObject from the supplied strong references to some PyObjects."
   (with-global-interpreter-lock-held
     (let* ((size (length pyobjects))
            (tuple (pytuple-new size)))
       (loop for position below size
             for pyobject in pyobjects
-            do (pyobject-incref pyobject)
             do (pytuple-setitem tuple position pyobject))
       tuple)))
 
@@ -133,3 +127,50 @@ wrapper is alive, and keeping the wrapper alive is cheaper than bumping
 the PyObject's refcount."
   (declare (ignore x))
   nil)
+
+;;; Reference Counts
+
+(defconstant +pyobject-refcount-offset+
+  ;; Acquire the GIL, because we are going to bump reference counts.
+  (with-global-interpreter-lock-held
+    ;; Locate the byte offset to the reference count by temporarily bumping the
+    ;; reference count and checking whether it affects the current region.
+    (loop for offset to 1024 do
+      (let* ((increment 7)
+             (pyobject (pylist-new 0))
+             (before (cffi:mem-ref pyobject :size offset)))
+        (loop repeat increment do (pyobject-incref pyobject))
+        (let ((after (cffi:mem-ref pyobject :size offset)))
+          (loop repeat (1+ increment) do (pyobject-decref pyobject))
+          (when (= (+ before increment) after)
+            (return offset))))
+          finally
+             (error "Failed to determine the refcount offset of Python objects.")))
+  "The byte offset from the start of a Python object to its reference count.")
+
+(defconstant +pyobject-refcount-immortal+
+  (ecase (cffi:foreign-type-size :pointer)
+    (8 #xffffffff)
+    (4 #x3fffffff)))
+
+(declaim (inline pyobject-refcount pyobject-fast-incref pyobject-fast-decref))
+
+(defun pyobject-refcount (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (logand
+   (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
+   +pyobject-refcount-immortal+))
+
+(defun pyobject-fast-incref (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (symbol-macrolet ((refcount (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)))
+    (setf refcount (logand +pyobject-refcount-immortal+ (1+ refcount)))))
+
+(defun pyobject-fast-decref (pyobject)
+  (declare (cffi:foreign-pointer pyobject))
+  (let ((value (logand (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
+                       +pyobject-refcount-immortal+)))
+    (if (<= value 1)
+        (pyobject-decref pyobject)
+        (setf (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
+              (1- value)))))

@@ -73,14 +73,14 @@
 
 (defun make-iterator (iterable)
   (with-pyobjects ((pyobject iterable))
-    (mirror-into-lisp (pyobject-iterator pyobject))))
+    (move-into-lisp (pyobject-iterator pyobject))))
 
 (defun iterator-next (iterator)
   (with-pyobjects ((pyiter iterator))
-    (let* ((pynext (pyiter-next pyiter)))
+    (let ((pynext (pyiter-next pyiter)))
       (if (cffi:null-pointer-p pynext)
           (values python:none nil)
-          (values (mirror-into-lisp pynext) t)))))
+          (values (move-into-lisp pynext) t)))))
 
 #+(or)
 (defmacro python:if (&whole whole test then &body more-clauses)
