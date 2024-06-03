@@ -1,26 +1,22 @@
----
-author:
-- Marco Heisig
-title: 'A library for cross-language interoperability.'
----
+# Seamless Programming LANGuage Interoperability
 
-The `lang` module/system/library can be loaded from multiple programming
+The **lang** module/system/library can be loaded from multiple programming
 languages to seamlessly integrate all the other supported ones.  The currently
 supported languages are Python and Lisp.
 
-Installation
-============
+## Installation
 
-Requires libsbcl in your library path if you want to load Lisp into
-Python.
+Each language requires one or more auxiliary libraries to be installed on your system:
 
-Requires libpython3.11 or later in your library path if you want to load
-Python into Lisp.
+- **lisp** requires libsbcl in your library path.
 
-Showcases
-=========
+- **python** requires libpython3.11 or later in your library path.
 
-``` {.commonlisp org-language="lisp"}
+## Showcases
+
+### Lisp
+
+```lisp
 (in-package #:cl-user)
 (sb-ext:add-package-local-nickname '#:python '#:lang.python)
 
@@ -28,10 +24,10 @@ Showcases
  => [1, 2.0, #C(3 4) "5 6"]
 
 (python:tuple (python:map #'class-of *))
- => (<class 'lang.common-lisp.fixnum'>,
-     <class 'lang.common-lisp.single-float'>,
-     <class 'lang.common-lisp.complex'>,
-     <class 'lang.sb-kernel.simple-character-string'>)
+ => (<class 'lang.lisp.cl.fixnum'>,
+     <class 'lang.lisp.cl.single-float'>,
+     <class 'lang.lisp.cl.complex'>,
+     <class 'lang.lisp.sb-kernel.simple-character-string'>)
 
 (python:getitem (python:dir 42) (python:slice 5))
  => ['__class__', '__bool__', '__and__', '__add__', '__abs__']
