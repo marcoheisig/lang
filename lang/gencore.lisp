@@ -13,13 +13,13 @@
 ;; at least one callable export to prevent SBCL from starting a REPL.
 (sb-alien:define-alien-callable ("posix_argv" %posix-argv) sb-alien:void ())
 
-(defun load-ouroboros ()
-  (handler-case (asdf:load-system :ouroboros :force t :verbose t)
+(defun load-lang ()
+  (handler-case (asdf:load-system :lang :force t :verbose t)
     (error (e)
       (format t "Caught error ~A." e)
       (finish-output))))
 
-(pushnew 'load-ouroboros sb-ext:*init-hooks*)
+(pushnew 'load-lang sb-ext:*init-hooks*)
 
-(sb-ext:save-lisp-and-die *ouroboros-core* :callable-exports '(("posix_argv" %posix-argv)))
+(sb-ext:save-lisp-and-die *lang-core* :callable-exports '(("posix_argv" %posix-argv)))
 

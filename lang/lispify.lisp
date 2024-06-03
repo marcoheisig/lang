@@ -1,4 +1,4 @@
-(in-package #:ouroboros.internals)
+(in-package #:lang-internals)
 
 (defclass lispify ()
   ())

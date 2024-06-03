@@ -1,4 +1,4 @@
-(defsystem :ouroboros
+(defsystem :lang
   :description "Bringing SBCL to Python and vice versa."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
@@ -22,8 +22,7 @@
    (:file "high-level")
    (:file "methods")
    (:file "python")
-   (:file "ouroboros")
+   (:file "lang")
    (:file "convert")
    (:file "lispify")
-   (:file "pythonize")
-   ))
+   (:file "pythonize")))

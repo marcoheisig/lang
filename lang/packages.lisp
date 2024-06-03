@@ -1,7 +1,7 @@
 (cl:in-package #:cl-user)
 
 (progn
-  (defpackage #:ouroboros.python
+  (defpackage #:lang.python
     #1=
     (:export
      ;; Keywords
@@ -233,14 +233,14 @@
      #:getitem
      ))
 
-  (defpackage #:ouroboros.python.builtins
-    (:use #:ouroboros.python)
+  (defpackage #:lang.python.builtins
+    (:use #:lang.python)
     #2#)
 
-  (defpackage #:ouroboros.internals
+  (defpackage #:lang-internals
     (:local-nicknames
-     (#:python #:ouroboros.python)
-     (#:python.builtins #:ouroboros.python.builtins))
+     (#:python #:lang.python)
+     (#:python.builtins #:lang.python.builtins))
     (:use #:closer-common-lisp)
     #3=
     (:export
@@ -268,13 +268,13 @@
      #:pythonize-tree
      #:pythonize-graph))
 
-  (defpackage #:ouroboros
+  (defpackage #:lang
     (:use #:closer-common-lisp
-          #:ouroboros.python
-          #:ouroboros.internals)
+          #:lang.python
+          #:lang-internals)
     (:local-nicknames
-     (#:python #:ouroboros.python)
-     (#:python.builtins #:ouroboros.python.builtins))
+     (#:python #:lang.python)
+     (#:python.builtins #:lang.python.builtins))
     ;; Conflicting Symbols
     (:shadow
      #:compile
@@ -332,9 +332,6 @@
           (loop for symbol being the external-symbols of "CL"
                 unless (member symbol exclude)
                   collect symbol)))
-    ;; Export Ouroboros symbols
-    #3#)
-
-  (defpackage #:ouroboros-user
-    (:use #:ouroboros)))
+    ;; Export Lang symbols
+    #3#))
 

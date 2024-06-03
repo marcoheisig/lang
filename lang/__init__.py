@@ -5,7 +5,7 @@ import subprocess
 
 moduledir = pathlib.Path(__file__).resolve().parent
 gencore_path = pathlib.Path(moduledir, "gencore.lisp")
-core_path = pathlib.Path(moduledir, "ouroboros.core")
+core_path = pathlib.Path(moduledir, "lang.core")
 quicklisp_path = pathlib.Path("~/quicklisp/setup.lisp").expanduser()
 
 assert gencore_path.exists()
@@ -19,7 +19,7 @@ if ((not core_path.exists()) or
         ['sbcl',
          '--noinform',
          '--eval', f'(load "{quicklisp_path}")',
-         '--eval', f'(defparameter cl-user::*ouroboros-core* "{core_path}")',
+         '--eval', f'(defparameter cl-user::*lang-core* "{core_path}")',
          '--script', str(gencore_path)])
 
 libsbcl = CDLL("libsbcl.so", mode=RTLD_GLOBAL)

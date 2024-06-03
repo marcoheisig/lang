@@ -1,0 +1,23 @@
+[project]
+name = "lang"
+version = "0.1"
+description = "import lang.[python,lisp,...]"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = [ "FFI", "Python", "Lisp" ]
+authors = [
+    { name = "Marco Heisig", email = "marco@heisig.xyz" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Lisp",
+]
+
+[project.urls]
+source = "https://github.com/marcoheisig/lang"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

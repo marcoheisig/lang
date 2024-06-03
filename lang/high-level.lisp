@@ -1,4 +1,4 @@
-(in-package #:ouroboros.internals)
+(in-package #:lang-internals)
 
 ;;; Conversion from Lisp to Python
 
@@ -156,4 +156,4 @@ functions (including getattr)."
 
 ;;; ... and now for the magic command that sets up all the rest.
 
-(lisp-package-from-python-module "OUROBOROS.PYTHON.BUILTINS" "builtins")
+(lisp-package-from-python-module "LANG.PYTHON.BUILTINS" "builtins")

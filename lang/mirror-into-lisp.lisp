@@ -1,4 +1,4 @@
-(in-package #:ouroboros.internals)
+(in-package #:lang-internals)
 
 (defvar *mirror-into-lisp-table*
   (make-hash-table :weakness :value :synchronized t)
@@ -208,7 +208,7 @@ triggering the start of the keyword argument portion."
            (package (or (find-package package-name)
                         (make-package package-name))))
       (intern symbol-name package)
-      (intern symbol-name "OUROBOROS.PYTHON"))))
+      (intern symbol-name "LANG.PYTHON"))))
 
 (defun pytype-direct-superclasses (pyobject)
   (declare (cffi:foreign-pointer pyobject))

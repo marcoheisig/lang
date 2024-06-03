@@ -1,4 +1,4 @@
-(in-package #:ouroboros.internals)
+(in-package #:lang-internals)
 
 (defvar *mirror-into-python-table*
   (make-hash-table :synchronized t)
@@ -110,7 +110,7 @@ object.")
   ())
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-object))))
-  (make-pytype "ouroboros.common_lisp.lisp_object"
+  (make-pytype "lang.common_lisp.lisp_object"
                (+ +pyobject-header-size+ +pointer-size+)
                0
                '(:default :basetype)
@@ -170,7 +170,7 @@ object.")
                :sq-inplace-repeat (cffi:callback __imul__)))
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-type))))
-  (make-pytype "ouroboros.common_lisp.lisp_type"
+  (make-pytype "lang.common_lisp.lisp_type"
                (+ +pyobject-type-size+ +pointer-size+)
                0
                '(:default :basetype :type-subclass)
@@ -193,7 +193,7 @@ object.")
                   (find-class 't)
                   (class-direct-superclasses class)))
          (type-name
-           (format nil "ouroboros.~A.~A"
+           (format nil "lang.~A.~A"
                    (string-downcase (package-name (symbol-package name)))
                    (string-downcase (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
@@ -219,7 +219,7 @@ object.")
 (defmethod mirror-into-python ((class (eql (find-class 'function))))
   (with-pyobjects ((base (find-class 'lisp-object)))
     (make-pytype
-     "ouroboros.common_lisp.function"
+     "lang.common_lisp.function"
      (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
      0
      '(:default :basetype)

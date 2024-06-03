@@ -1,7 +1,9 @@
 *
+!/README.md
+!/pyproject.toml
 !/LICENSE
 !/.gitignore
-!/ouroboros
+!/lang
 
 # Source Code
 !*.lisp
