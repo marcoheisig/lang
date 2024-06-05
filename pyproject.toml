@@ -4,6 +4,7 @@ version = "0.1"
 description = "import lang.[python,lisp,...]"
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = ["setuptools"]
 keywords = [ "FFI", "Python", "Lisp" ]
 authors = [
     { name = "Marco Heisig", email = "marco@heisig.xyz" },

@@ -1,0 +1,84 @@
+#+TITLE: Brainstorming
+
+* Terminology and Grammar
+
+Each programming language has a different terminology, which makes it
+challenging to talk about the big picture.  Rather than write "the concept
+which is called A in language L1, B in language L2, ...", we use the following
+table to map from our terminology to that of various languages:
+
+| L      | L-module | L-component | L-modsep | L-objsep |
+|--------+----------+-------------+----------+----------|
+| Python | module   | identifier  | .        | .        |
+| Lisp   | package  | string      | .        | : or ::  |
+
+L-language-name := "lang" L-modsep L-component
+
+L-module-name := l-language-name ( L-modsep L-component) +
+
+L-variable := L-module-name L-objsep L-component
+
+* Translation
+
+A main challenge we face is to map components and module names of one language
+to another.  For any two languages A and B, we'd like to have a function that
+maps each A-component to a B-component in such a way that no two A-components
+map to the same B-component, and such that there exists an inverse operation
+that maps each B-component to the original A-component.  Additionally, the
+mapping from A-components to B-components should be intuitive, and roughly
+preserve the appearance of the original A-component.
+
+Due to the vast differences in expressiveness of components, such a mapping may
+be impossible, or at least extremely unwieldy.  Our solution is to translate
+each A-component in two different ways.  One way is an approximate translation
+that maps each A-component to a best-effort approximation using conventions and
+constraints of B.  The other way is to turn the A-component into a Unicode
+string as it is.  We then provide mechanisms to look up the value of the
+A-component using either B representation.  In case the former, approximate
+convention results in a collision, the colliding components are not generated
+at all, the second way of using the Unicode string is the only way to look up
+the object.  Using this convention, we know that no two approximate
+translations map to the same object, and we can easily construct a table that
+maps them (and their more precise Unicode string alternatives) back to the
+original A-component.
+
+* Interface
+
+Within each language L, this library provides the following functionality:
+
+1. ~"lang" L-objsep "load"~ is a function that takes one argument that is an
+   L-language-name or L-module-name, and ensures the existence of the L-module
+   of that name.  Returns that L-module.
+
+2. For each language name ~X~, the module named ~"lang" L-modsep X~ exports
+   functions that mirror the behavior of the language ~X~ in L.  Additionally
+   the module includes mechanisms for customizing the behavior of the ~"lang"
+   L-objset "load"~ functions.
+
+* Challenges
+
+** Bootstrapping
+
+Only the host language is available by default, meaning that interface has to
+be implemented once for every language.  Alternatively, there could be one
+blessed language that has to be loaded regardless.
+
+** Garbage Collection
+
+The goal is to assign mark each cross-language reference as either white or
+black, in such a way that all black objects can safely be collected.  To do so,
+mark all cross-language references as black, and put all languages with
+outgoing cross-language references into the worklist W.
+
+While there are elements in the worklist, set L = pop(W) and perform the
+following steps:
+
+1. Mark all L objects that are reachable from any roots in L as white.
+   Incoming cross-language references are only considered as roots when they
+   are white.
+
+2. If any outgoing cross-language references have changed from black to white,
+   add the target languages back to the worklist.
+
+Once the worklist is empty, delete all cross-language references that are still
+black.

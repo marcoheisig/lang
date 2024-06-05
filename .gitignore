@@ -4,8 +4,14 @@
 !/LICENSE
 !/.gitignore
 !/lang
+!/lang
+!/lang/*/
 
 # Source Code
 !*.lisp
 !*.asd
 !*.py
+
+# Documentation
+!*.md
+!*.org

@@ -1,4 +1,4 @@
-# Seamless Programming LANGuage Interoperability
+# lang
 
 The **lang** module/system/library can be loaded from multiple programming
 languages to seamlessly integrate all the other supported ones.  The currently

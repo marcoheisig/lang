@@ -1,32 +1,35 @@
-from ctypes import CDLL, RTLD_GLOBAL, c_char_p
-import os.path
-import pathlib
-import subprocess
+import sys
+import importlib.abc
+import importlib.machinery
+import importlib.util
 
-moduledir = pathlib.Path(__file__).resolve().parent
-gencore_path = pathlib.Path(moduledir, "gencore.lisp")
-core_path = pathlib.Path(moduledir, "lang.core")
-quicklisp_path = pathlib.Path("~/quicklisp/setup.lisp").expanduser()
 
-assert gencore_path.exists()
-assert quicklisp_path.exists()
+_lang_loaders : dict[str, importlib.abc.MetaPathFinder] = {}
 
-if ((not core_path.exists()) or
-    # Ensure the core is newer than gencore.lisp
-    (os.path.getmtime(core_path) < os.path.getmtime(gencore_path))):
-    # (Re)generate the core file
-    subprocess.run(
-        ['sbcl',
-         '--noinform',
-         '--eval', f'(load "{quicklisp_path}")',
-         '--eval', f'(defparameter cl-user::*lang-core* "{core_path}")',
-         '--script', str(gencore_path)])
 
-libsbcl = CDLL("libsbcl.so", mode=RTLD_GLOBAL)
+class LangFinder(importlib.abc.MetaPathFinder):
 
-def initialize(args):
-    argc = len(args)
-    argv = (c_char_p * argc)(*[c_char_p(arg.encode('utf-8')) for arg in args])
-    libsbcl.initialize_lisp(argc, argv)
+    def find_spec(self, fullname, path, target = None):
+        prefix = "lang."
+        if not isinstance(fullname, str):
+            return None
+        if not fullname.startswith(prefix):
+            return None
+        rest = fullname[len(prefix):]
+        pos = rest.find('.')
+        end = len(rest) if pos == -1 else pos
+        lang = rest[:end]
+        mpf = _lang_loaders.get(lang)
+        if mpf is None:
+            return None
+        return mpf.find_spec(fullname, path, target)
 
-initialize(["", "--core", str(core_path), "--noinform"])
+
+if LangFinder not in sys.meta_path:
+    sys.meta_path.append(LangFinder())
+
+
+def register_language(name: str, mpf: importlib.abc.MetaPathFinder):
+    _lang_loaders[name] = mpf
+
+__all__ = ["register_language"]

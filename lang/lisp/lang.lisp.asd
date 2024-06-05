@@ -1,5 +1,5 @@
-(defsystem :lang
-  :description "A library for seamless multi-language programming."
+(defsystem :lang.lisp
+  :description "Bring Lisp to Lisp."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
   :depends-on ("closer-mop")
