@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defmethod __repr__ ((object t))
   (python-string-from-lisp-string

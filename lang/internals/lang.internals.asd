@@ -6,8 +6,10 @@
   ("alexandria"
    "cffi"
    "closer-mop"
+   "lang"
    "trivial-garbage")
 
+  :serial t
   :components
   ((:static-file "gencore")
    (:file "packages")

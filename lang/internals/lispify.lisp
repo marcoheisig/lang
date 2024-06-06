@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defclass lispify ()
   ())

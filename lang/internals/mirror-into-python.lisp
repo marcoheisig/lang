@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defvar *mirror-into-python-table*
   (make-hash-table :synchronized t)

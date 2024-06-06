@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 ;;; Conversion from Lisp to Python
 
@@ -80,6 +80,7 @@
                  (python-symbol (intern python-name package))
                  (lisp-name (lispify-python-identifier python-string))
                  (lisp-symbol (intern lisp-name package)))
+            (export (list python-symbol lisp-symbol) package)
             (if (nth-value 1 (gethash lisp-symbol symbol-table))
                 ;; Collision of two lisp names.
                 (setf (gethash lisp-symbol symbol-table)

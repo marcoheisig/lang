@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defgeneric mirror-into-lisp (pyobject)
   (:documentation
@@ -48,7 +48,7 @@ object."))
     :reader python-error-traceback))
   (:report
    (lambda (python-error stream)
-     (format stream "Received a Python exception of type ~A:~%~S"
+     (format stream "Received a Python exception of type ~A:~%~A"
              (string (class-name (python-error-type python-error)))
              (python-error-value python-error)))))
 

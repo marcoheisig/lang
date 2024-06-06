@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defclass python-object (funcallable-standard-object)
   ((%pyobject
@@ -9,6 +9,17 @@
   (:metaclass funcallable-standard-class)
   (:documentation
    "An object of the Python programming language."))
+
+(defclass python-class (python-object funcallable-standard-class)
+  ()
+  (:metaclass funcallable-standard-class)
+  (:documentation
+   "A class of the Python programming language."))
+
+(defmethod validate-superclass
+    ((python-class python-class)
+     (superclass funcallable-standard-class))
+  t)
 
 ;;; Early Object Conversion
 
@@ -53,47 +64,47 @@
    "A generic function class that ensures that whenever it is invoked with a mix of
 Python objects and Lisp objects, the Python objects are first converted to Lisp."))
 
-  (defmethod initialize-instance :after
-      ((lgf lispifying-generic-function)
-       &key lambda-list
-       &allow-other-keys)
-    (let* ((method-class (generic-function-method-class lgf))
-           (nfixed
-             (or (position-if (lambda (x) (member x lambda-list-keywords)) lambda-list)
-                 (length lambda-list)))
-           (other-args (subseq lambda-list nfixed)))
-      (when other-args
-        (error "Lispifying generic functions must have required arguments only."))
-      (apply
-       #'alexandria:map-product
-       (lambda (&rest specializers)
-         ;; Skip the case where all arguments are Python objects, and the case
-         ;; where no arguments are Python objects.
-         (unless (= 1 (length (remove-duplicates specializers)))
-           (multiple-value-bind (method-lambda extra-arguments)
-               (make-method-lambda
-                lgf
-                (class-prototype method-class)
-                `(lambda ,lambda-list
-                   (funcall
-                    (function ,(generic-function-name lgf))
-                    ,@(loop for arg in lambda-list
-                            for specializer in specializers
-                            collect
-                            (if (eql specializer 't)
-                                arg
-                                `(lispify ,arg)))))
-                nil)
-             (add-method
+(defmethod initialize-instance :after
+    ((lgf lispifying-generic-function)
+     &key lambda-list
+     &allow-other-keys)
+  (let* ((method-class (generic-function-method-class lgf))
+         (nfixed
+           (or (position-if (lambda (x) (member x lambda-list-keywords)) lambda-list)
+               (length lambda-list)))
+         (other-args (subseq lambda-list nfixed)))
+    (when other-args
+      (error "Lispifying generic functions must have required arguments only."))
+    (apply
+     #'alexandria:map-product
+     (lambda (&rest specializers)
+       ;; Skip the case where all arguments are Python objects, and the case
+       ;; where no arguments are Python objects.
+       (unless (= 1 (length (remove-duplicates specializers)))
+         (multiple-value-bind (method-lambda extra-arguments)
+             (make-method-lambda
               lgf
-              (apply #'make-instance method-class
-                     :lambda-list lambda-list
-                     :function (compile nil method-lambda)
-                     :specializers (mapcar #'find-class specializers)
-                     :qualifiers '()
-                     :documentation "Convert Python arguments into Lisp."
-                     extra-arguments)))))
-       (make-list nfixed :initial-element '(t python-object)))))
+              (class-prototype method-class)
+              `(lambda ,lambda-list
+                 (funcall
+                  (function ,(generic-function-name lgf))
+                  ,@(loop for arg in lambda-list
+                          for specializer in specializers
+                          collect
+                          (if (eql specializer 't)
+                              arg
+                              `(lispify ,arg)))))
+              nil)
+           (add-method
+            lgf
+            (apply #'make-instance method-class
+                   :lambda-list lambda-list
+                   :function (compile nil method-lambda)
+                   :specializers (mapcar #'find-class specializers)
+                   :qualifiers '()
+                   :documentation "Convert Python arguments into Lisp."
+                   extra-arguments)))))
+     (make-list nfixed :initial-element '(t python-object)))))
 
 ;;; Constants
 

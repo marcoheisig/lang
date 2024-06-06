@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (defvar *mirror-into-lisp-table*
   (make-hash-table :weakness :value :synchronized t)
@@ -44,18 +44,16 @@ finalizer for it, and register it in the mirror-into-lisp table."
      (register-python-object-finalizer pyobject python-object))))
 
 (defun register-python-object-finalizer (pyobject python-object)
-  ;; No need to add a finalizer for immortal pyobjects.
-  (unless (= (pyobject-refcount pyobject) +pyobject-refcount-immortal+)
-    (trivial-garbage:finalize
-     python-object
-     (lambda ()
-       (with-global-interpreter-lock-held
-         #+(or)
-         (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
-                 (let ((pyrepr (pyobject-repr pyobject)))
-                   (unwind-protect (string-from-pyobject pyrepr)
-                     (pyobject-decref pyrepr))))
-         (pyobject-decref pyobject))))))
+  (trivial-garbage:finalize
+   python-object
+   (lambda ()
+     (with-global-interpreter-lock-held
+       #+(or)
+       (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
+               (let ((pyrepr (pyobject-repr pyobject)))
+                 (unwind-protect (string-from-pyobject pyrepr)
+                   (pyobject-decref pyrepr))))
+       (pyobject-decref pyobject)))))
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
@@ -143,29 +141,23 @@ triggering the start of the keyword argument portion."
         (literal-keyword-keyword argument)
         argument))))
 
-(defclass python-class (python-object funcallable-standard-class)
-  ()
-  (:metaclass funcallable-standard-class))
+(ensure-class
+ 'python:type
+ :metaclass (find-class 'python-class)
+ :direct-superclasses (list (find-class 'python-class))
+ :pyobject *type-pyobject*)
 
-(defmethod validate-superclass
-    ((python-class python-class)
-     (superclass funcallable-standard-class))
-  t)
+(ensure-class
+ 'python:object
+ :metaclass (find-class 'python:type)
+ :direct-superclasses (list (find-class 'python-object))
+ :pyobject *object-pyobject*)
 
-(defclass python:type (python-class)
-  ()
-  (:metaclass python-class)
-  (:pyobject . #.*type-pyobject*))
-
-(defclass python:object (python-object)
-  ()
-  (:metaclass python:type)
-  (:pyobject . #.*object-pyobject*))
-
-(defclass python:none (python:type)
-  ()
-  (:metaclass python:type)
-  (:pyobject . #.*none-pyobject*))
+(ensure-class
+ 'python:none
+ :metaclass (find-class 'python:type)
+ :direct-superclasses (list (find-class 'python:type))
+ :pyobject *none-pyobject*)
 
 ;; Treat null pointers as none.
 (setf (gethash 0 *mirror-into-lisp-table*)
@@ -180,7 +172,9 @@ triggering the start of the keyword argument portion."
       (:borrowed-reference
        (pyobject-incref pyobject)))
     (let* ((pytype (pyobject-type pyobject))
-           (class (mirror-into-lisp pytype)))
+           (class (if (pyobject-eq pytype pyobject)
+                      (error "bug")
+                      (move-into-lisp pytype))))
       (if (pytype-subtypep pytype *type-pyobject*)
           ;; Create a type.
           (let* ((class-name (pytype-class-name pyobject))

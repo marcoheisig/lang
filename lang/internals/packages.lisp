@@ -237,7 +237,7 @@
     (:use #:lang.python)
     #2#)
 
-  (defpackage #:lang-internals
+  (defpackage #:lang.internals
     (:local-nicknames
      (#:python #:lang.python)
      (#:python.builtins #:lang.python.builtins))
@@ -266,72 +266,5 @@
      #:pythonize
      #:pythonize-once
      #:pythonize-tree
-     #:pythonize-graph))
-
-  (defpackage #:lang
-    (:use #:closer-common-lisp
-          #:lang.python
-          #:lang-internals)
-    (:local-nicknames
-     (#:python #:lang.python)
-     (#:python.builtins #:lang.python.builtins))
-    ;; Conflicting Symbols
-    (:shadow
-     #:compile
-     #:import
-     #:eval
-     #:float
-     #:break
-     #:and
-     #:open
-     #:or
-     #:<=
-     #:>=
-     #:<
-     #:>
-     #:/=
-     #:+
-     #:++
-     #:+++
-     #:-
-     #:*
-     #:**
-     #:***
-     #:/
-     #://
-     #:///
-     #:round
-     #:if
-     #:assert
-     #:abs
-     #:type
-     #:min
-     #:max
-     #:print
-     #:case
-     #:complex
-     #:continue
-     #:lambda
-     #:return
-     #:not
-     #:set
-     #:format
-     #:list
-     #:class
-     #:map
-     #:warning
-     #:type-error
-     #:arithmetic-error)
-    ;; Export all Python symbols
-    #1#
-    #2#
-    ;; Export all but a few Common Lisp symbols
-    #.
-    `(:export
-      ,@(let ((exclude '(/// *** ++ +++)))
-          (loop for symbol being the external-symbols of "CL"
-                unless (member symbol exclude)
-                  collect symbol)))
-    ;; Export Lang symbols
-    #3#))
+     #:pythonize-graph)))
 

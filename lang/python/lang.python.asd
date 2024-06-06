@@ -2,7 +2,8 @@
   :description "Bring Python to Lisp."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
-  :depends-on ("closer-mop")
+  :depends-on ("asdf" "lang" "lang.internals")
 
+  :serial t
   :components
-  ((:file "__init__")))
+  ((:file "python")))

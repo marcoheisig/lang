@@ -2,7 +2,7 @@
   :description "A library for seamless multi-language programming."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
-  :depends-on ("closer-mop")
 
+  :serial t
   :components
-  ((:file "__init__")))
+  ((:file "lang")))

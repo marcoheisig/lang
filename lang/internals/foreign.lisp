@@ -1,4 +1,4 @@
-(in-package #:lang-internals)
+(in-package #:lang.internals)
 
 (cffi:defcfun ("Py_Initialize" python-initialize) :void)
 
@@ -61,12 +61,13 @@
     ;; Case 3 - Acquire the lock and release it when the thunk returns.
     (t
      (let ((*global-interpreter-lock-held* t))
-       (python-restore-thread *python-thread*)
-       (unwind-protect (funcall thunk)
-         (let ((thread (python-save-thread)))
-           ;; Not sure how to deal with multiple Python threads.  For now, we
-           ;; assume there is only one Python thread.
-           (assert (cffi:pointer-eq thread *python-thread*))))))))
+       (sb-int:with-float-traps-masked (:underflow :overflow :inexact :invalid :divide-by-zero)
+         (python-restore-thread *python-thread*)
+         (unwind-protect (funcall thunk)
+           (let ((thread (python-save-thread)))
+             ;; Not sure how to deal with multiple Python threads.  For now, we
+             ;; assume there is only one Python thread.
+             (assert (cffi:pointer-eq thread *python-thread*)))))))))
 
 (defmacro with-global-interpreter-lock-held (&body body)
   `(call-with-global-interpreter-lock-held (lambda () ,@body)))
@@ -269,6 +270,9 @@
 (cffi:defcfun ("PyErr_SetObject" pyerr-set-object) :void
   (pytype pyobject)
   (pyvalue pyobject))
+
+(cffi:defcfun ("PyErr_GetArgs" pyerr-getargs) pyobject
+  (pyerr pyobject))
 
 (cffi:defcfun ("PyErr_Occurred" pyerr-occurred) :pointer)
 

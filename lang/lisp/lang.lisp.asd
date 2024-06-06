@@ -2,7 +2,8 @@
   :description "Bring Lisp to Lisp."
   :author "Marco Heisig <marco@heisig.xyz"
   :license "MIT"
-  :depends-on ("closer-mop")
+  :depends-on ("lang")
 
+  :serial t
   :components
-  ((:file "__init__")))
+  ((:file "lisp")))
