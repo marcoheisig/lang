@@ -92,7 +92,9 @@ finalizer for it, and register it in the mirror-into-lisp table."
         (loop for index below nkwargs
               for (keyword argument) on kwstart
               do (setf (pytuple-getitem kwnames index)
-                       (pyobject-from-string (symbol-name keyword)))
+                       (pyobject-from-string
+                        (string-downcase
+                         (symbol-name keyword))))
               do (setf (aref argv (+ 1 nargs index))
                        (argument-pyobject argument)))
         ;; Perform the actual call and mirror the result into Lisp.

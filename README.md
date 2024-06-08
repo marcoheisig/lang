@@ -14,10 +14,11 @@ Each language requires one or more auxiliary libraries to be installed on your s
 
 ## Showcases
 
-### Lisp
+### Python from Lisp
 
 ```lisp
 (in-package #:cl-user)
+(asdf:load-system :lang.python)
 (sb-ext:add-package-local-nickname '#:python '#:lang.python)
 
 (python:list #(1 2.0 #c(3 4) "5 6"))
@@ -29,12 +30,17 @@ Each language requires one or more auxiliary libraries to be installed on your s
      <class 'lang.lisp.cl.complex'>,
      <class 'lang.lisp.sb-kernel.simple-character-string'>)
 
-(python:getitem (python:dir 42) (python:slice 5))
- => ['__class__', '__bool__', '__and__', '__add__', '__abs__']
+(asdf:load-system :lang.python.numpy)
+(sb-ext:add-package-local-nickname '#:np '#:lang.python.numpy)
+(np:array #(1 2 3) np:float32)
+ => array([1., 2., 3.], dtype=float32)
 
-(python:isinstance (python:getitem (python:dir 42) 0) (find-class 'python:str))
- => True
+(python:* * 3)
+ => array([3., 6., 9.], dtype=float32)
+```
 
-(typep (python:getitem (python:dir 42) 0) 'python:str)
- => t
+### Lisp from Python
+
+```python
+import lang.lisp
 ```

@@ -104,14 +104,7 @@ object."))
 (defgeneric __hash__ (object)
   (:generic-function-class lispifying-generic-function))
 
-(cffi:defcallback __hash__ :uint
-    ((object pyobject))
-  (__hash__ (mirror-into-lisp object)))
-
-(cffi:defcallback __richcmp__ pyobject
-    ((o1 pyobject)
-     (o2 pyobject)
-     (cmp :int))
+(defun __richcmp__ (o1 o2 cmp)
   (let ((a (mirror-into-lisp o1))
         (b (mirror-into-lisp o2)))
     (ecase cmp
@@ -121,6 +114,16 @@ object."))
       (3 (__ne__ a b))
       (4 (__gt__ a b))
       (5 (__ge__ a b)))))
+
+(cffi:defcallback __hash__ :uint
+    ((object pyobject))
+  (__hash__ (mirror-into-lisp object)))
+
+(cffi:defcallback __richcmp__ pyobject
+    ((o1 pyobject)
+     (o2 pyobject)
+     (cmp :int))
+  (__richcmp__ o1 o2 cmp))
 
 ;;; Sequence and Mapping Methods
 
@@ -133,9 +136,7 @@ object."))
 
 (define-pycallable __getitem__ (object key))
 
-(cffi:defcallback __sq_getitem__ :pointer
-    ((pyobject pyobject)
-     (index :ssize))
+(defun __sq_getitem__ (pyobject index)
   (handler-case
       (mirror-into-python
        (__getitem__ (mirror-into-lisp pyobject) index))
@@ -146,6 +147,11 @@ object."))
       (with-global-interpreter-lock-held
         (pyerr-set-none (mirror-into-python (find-class 'python:index-error)))
         (cffi:null-pointer)))))
+
+(cffi:defcallback __sq_getitem__ :pointer
+    ((pyobject pyobject)
+     (index :ssize))
+  (__sq_getitem__ pyobject index))
 
 (define-pycallable __setitem__ (object index value))
 
@@ -158,14 +164,17 @@ object."))
                (mirror-into-lisp pyvalue))
   (values 0))
 
-(cffi:defcallback __sq_setitem__ :int
-    ((pyobject pyobject)
-     (index :ssize)
-     (pyvalue pyobject))
+(defun __sq_setitem__ (pyobject index pyvalue)
   (__setitem__ (mirror-into-lisp pyobject)
                index
                (mirror-into-lisp pyvalue))
   (values 0))
+
+(cffi:defcallback __sq_setitem__ :int
+    ((pyobject pyobject)
+     (index :ssize)
+     (pyvalue pyobject))
+  (__sq_setitem__ pyobject index pyvalue))
 
 (defgeneric __contains__ (object value)
   (:generic-function-class lispifying-generic-function))
@@ -248,3 +257,8 @@ object."))
 (define-pycallable __truediv__ (object-1 object-2))
 
 (define-pycallable __xor__ (object-1 object-2))
+
+(defgeneric pytype-function-attributes (class)
+  (:documentation
+   "Returns a list of alternating slot keywords and callables that describe the
+function attributes of the Python type corresponding to the supplied class."))

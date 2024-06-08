@@ -103,6 +103,8 @@ object.")
           (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5) (arg 6)
                  (loop for index from 7 below nargs collect (arg index)))))))))
 
+
+
 (defclass lisp-object ()
   ())
 
@@ -117,70 +119,19 @@ object.")
                :tp-base *object-pyobject*
                :tp-doc (cffi:null-pointer) ;; TODO
                :tp-finalize (cffi:callback __finalize__)
-               :tp-repr (cffi:callback __repr__)
-               :tp-str (cffi:callback __str__)
-               :tp-hash (cffi:callback __hash__)
-               :tp-richcompare (cffi:callback __richcmp__)
-               ;; Number Functions
-               :nb-absolute (cffi:callback __abs__)
-               :nb-add (cffi:callback __add__)
-               :nb-and (cffi:callback __and__)
-               :nb-bool (cffi:callback __bool__)
-               :nb-divmod (cffi:callback __divmod__)
-               :nb-float (cffi:callback __float__)
-               :nb-floor-divide (cffi:callback __floordiv__)
-               :nb-index (cffi:callback __index__)
-               :nb-inplace-add (cffi:callback __iadd__)
-               :nb-inplace-and (cffi:callback __iand__)
-               :nb-inplace-floor-divide (cffi:callback __ifloordiv__)
-               :nb-inplace-lshift (cffi:callback __ilshift__)
-               :nb-inplace-multiply (cffi:callback __imul__)
-               :nb-inplace-or (cffi:callback __ior__)
-               :nb-inplace-power (cffi:callback __ipow__)
-               :nb-inplace-remainder (cffi:callback __imod__)
-               :nb-inplace-rshift (cffi:callback __irshift__)
-               :nb-inplace-subtract (cffi:callback __isub__)
-               :nb-inplace-true-divide (cffi:callback __itruediv__)
-               :nb-inplace-xor (cffi:callback __ixor__)
-               :nb-int (cffi:callback __int__)
-               :nb-invert (cffi:callback __invert__)
-               :nb-lshift (cffi:callback __lshift__)
-               :nb-multiply (cffi:callback __mul__)
-               :nb-negative (cffi:callback __neg__)
-               :nb-or (cffi:callback __or__)
-               :nb-positive (cffi:callback __pos__)
-               :nb-power (cffi:callback __pow__)
-               :nb-remainder (cffi:callback __mod__)
-               :nb-rshift (cffi:callback __rshift__)
-               :nb-subtract (cffi:callback __sub__)
-               :nb-true-divide (cffi:callback __truediv__)
-               :nb-xor (cffi:callback __xor__)
-               ;; Mapping Functions
-               :mp-length (cffi:callback __len__)
-               :mp-subscript (cffi:callback __getitem__)
-               :mp-ass-subscript (cffi:callback __setitem__)
-               ;; Sequence Functions
-               :sq-length (cffi:callback __len__)
-               :sq-concat (cffi:callback __add__)
-               :sq-repeat (cffi:callback __mul__)
-               :sq-ass-item (cffi:callback __sq_setitem__)
-               :sq-item (cffi:callback __sq_getitem__)
-               :sq-contains (cffi:callback __contains__)
-               :sq-inplace-concat (cffi:callback __iadd__)
-               :sq-inplace-repeat (cffi:callback __imul__)))
+))
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-type))))
-  (make-pytype "lang.lisp.lisp_type"
-               (+ +pyobject-type-size+ +pointer-size+)
-               0
-               '(:default :basetype :type-subclass)
-               :tp-base *type-pyobject*
-               :tp-doc (cffi:null-pointer) ;; TODO
-               :tp-finalize (cffi:callback __finalize__)
-               :tp-repr (cffi:callback __repr__)
-               :tp-str (cffi:callback __str__)
-               :tp-hash (cffi:callback __hash__)
-               :tp-richcompare (cffi:callback __richcmp__)))
+  (apply
+   #'make-pytype
+   "lang.lisp.lisp_type"
+   (+ +pyobject-type-size+ +pointer-size+)
+   0
+   '(:default :basetype :type-subclass)
+   :tp-base *type-pyobject*
+   :tp-doc (cffi:null-pointer) ;; TODO
+   :tp-finalize (cffi:callback __finalize__)
+   (pytype-function-attributes class)))
 
 (defmethod mirror-into-python ((class class))
   (let* ((name (class-name class))
@@ -200,7 +151,8 @@ object.")
     (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers)))))
       (loop for super in supers for index from 0 do
         (pytuple-setitem bases index (mirror-into-python super)))
-      (make-pytype
+      (apply
+       #'make-pytype
        type-name
        (cond (classp
               (+ +pyobject-type-size+ +pointer-size+))
@@ -211,19 +163,22 @@ object.")
        0
        '(:default :basetype)
        :tp-bases bases
-       :tp-doc (cffi:null-pointer)))))
+       :tp-doc (cffi:null-pointer)
+       (pytype-function-attributes class)))))
 
 (defmethod mirror-into-python ((class (eql (find-class 't))))
   *object-pyobject*)
 
 (defmethod mirror-into-python ((class (eql (find-class 'function))))
   (with-pyobjects ((base (find-class 'lisp-object)))
-    (make-pytype
+    (apply
+     #'make-pytype
      "lang.lisp.function"
      (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
      0
      '(:default :basetype)
      :tp-base base
-     :tp-call (cffi:callback __call__)
      :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
-     :tp-doc (cffi:null-pointer))))
+     :tp-doc (cffi:null-pointer)
+     :tp-call (cffi:callback __call__)
+     (pytype-function-attributes class))))
