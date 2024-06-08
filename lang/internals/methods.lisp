@@ -156,6 +156,13 @@
 (defmethod __contains__ ((hash-table hash-table) value)
   (nth-value 1 (gethash value hash-table)))
 
+(remove-method
+ (function  __contains__)
+ (find-method
+  (function __contains__)
+  '()
+  (mapcar #'find-class '(python-object t))))
+
 (defmethod __contains__ ((python-object python-object) value)
   (with-pyobjects ((pyobject python-object)
                    (pyvalue value))
@@ -418,75 +425,3 @@
     (format stream "~S ~S"
             (class-name (class-of type))
             (class-name type))))
-
-(defparameter *pytype-function-attributes*
-  '((:tp-repr __repr__)
-    (:tp-str __str__)
-    (:tp-hash __hash__)
-    (:tp-richcompare __richcmp__)
-    ;; Number Functions
-    (:nb-absolute __abs__)
-    (:nb-add __add__)
-    (:nb-and __and__)
-    (:nb-bool __bool__)
-    (:nb-divmod __divmod__)
-    (:nb-float __float__)
-    (:nb-floor-divide __floordiv__)
-    (:nb-index __index__)
-    (:nb-inplace-add __iadd__)
-    (:nb-inplace-and __iand__)
-    (:nb-inplace-floor-divide __ifloordiv__)
-    (:nb-inplace-lshift __ilshift__)
-    (:nb-inplace-multiply __imul__)
-    (:nb-inplace-or __ior__)
-    (:nb-inplace-power __ipow__)
-    (:nb-inplace-remainder __imod__)
-    (:nb-inplace-rshift __irshift__)
-    (:nb-inplace-subtract __isub__)
-    (:nb-inplace-true-divide __itruediv__)
-    (:nb-inplace-xor __ixor__)
-    (:nb-int __int__)
-    (:nb-invert __invert__)
-    (:nb-lshift __lshift__)
-    (:nb-multiply __mul__)
-    (:nb-negative __neg__)
-    (:nb-or __or__)
-    (:nb-positive __pos__)
-    (:nb-power __pow__)
-    (:nb-remainder __mod__)
-    (:nb-rshift __rshift__)
-    (:nb-subtract __sub__)
-    (:nb-true-divide __truediv__)
-    (:nb-xor __xor__)
-    ;; Mapping Functions
-    (:mp-length __len__)
-    (:mp-subscript __getitem__)
-    (:mp-ass-subscript __setitem__)
-    ;; Sequence Functions
-    (:sq-length __len__)
-    (:sq-concat __add__)
-    (:sq-repeat __mul__)
-    (:sq-ass-item __sq_setitem__)
-    (:sq-item __sq_getitem__)
-    (:sq-contains __contains__)
-    (:sq-inplace-concat __iadd__)
-    (:sq-inplace-repeat __imul__)))
-
-(defmethod pytype-function-attributes ((class class))
-  (loop for (slot function-name) in *pytype-function-attributes*
-        collect slot
-        collect (pytype-function-attribute class function-name)))
-
-(defun pytype-function-attribute (class function-name)
-  (let ((fn (fdefinition function-name)))
-    (etypecase fn
-      (generic-function
-       (let* ((lambda-list (generic-function-lambda-list fn))
-              (nargs (length lambda-list)))
-         (assert (null (intersection lambda-list lambda-list-keywords)))
-         (if (compute-applicable-methods-using-classes
-              fn
-              (list* class (make-list (1- nargs) :initial-element (find-class 't))))
-             (cffi-sys:%callback function-name)
-             (cffi:null-pointer))))
-      (function (cffi-sys:%callback function-name)))))

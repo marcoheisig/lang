@@ -25,9 +25,9 @@ Each language requires one or more auxiliary libraries to be installed on your s
  => [1, 2.0, #C(3 4) "5 6"]
 
 (python:tuple (python:map #'class-of *))
- => (<class 'lang.lisp.cl.fixnum'>,
-     <class 'lang.lisp.cl.single-float'>,
-     <class 'lang.lisp.cl.complex'>,
+ => (<class 'lang.lisp.common-lisp.fixnum'>,
+     <class 'lang.lisp.common-lisp.single-float'>,
+     <class 'lang.lisp.common-lisp.complex'>,
      <class 'lang.lisp.sb-kernel.simple-character-string'>)
 
 (asdf:load-system :lang.python.numpy)
