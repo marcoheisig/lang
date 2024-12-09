@@ -17,7 +17,7 @@
    "A class of the Python programming language."))
 
 (defmethod validate-superclass
-    ((python-class python-class)
+    ((class python-class)
      (superclass funcallable-standard-class))
   t)
 

@@ -5,10 +5,10 @@
   "A hash table mapping from integers that are PyObject addresses to the
 corresponding Lisp objects.
 
-Each Lisp object that is not a mirror object should have a finalizer that
-decreases the reference count of its corresponding PyObject.
+Each Lisp object must have a finalizer that decreases the reference count of
+its corresponding PyObject.
 
-Use weak references for the values, because we can recreate the Python object
+Use weak references for the values, because we can recreate them
 at any time if necessary.")
 
 (defmethod move-into-lisp (pyobject)
@@ -284,7 +284,7 @@ Applies the following rules:
           (convert position suffix))
         (copy-verbatim suffix (length original))))))
 
-;;; Define all the built-in types.
+;;; Define mirror objects for all of Python's built-in types.
 
 (defparameter python:bool (mirror-into-lisp *bool-pyobject*))
 

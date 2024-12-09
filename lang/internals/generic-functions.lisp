@@ -18,7 +18,7 @@ Python object."))
 object."))
 
 (define-compiler-macro move-into-lisp (&whole whole form)
-  "Rewrite (mirror-into-lisp (mirror-into-python X)) to X."
+  "Rewrite (move-into-lisp (mirror-into-python X)) to X."
   (if (and (listp form)
            (= 2 (length form))
            (eql (first form) 'mirror-into-python))
@@ -26,7 +26,7 @@ object."))
       whole))
 
 (define-compiler-macro mirror-into-python (&whole whole form)
-  "Rewrite (mirror-into-python (mirror-into-lisp X)) to X."
+  "Rewrite (mirror-into-python (move-into-lisp X)) to X."
   (if (and (listp form)
            (= 2 (length form))
            (eql (first form) 'move-into-lisp))

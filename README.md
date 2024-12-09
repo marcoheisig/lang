@@ -8,9 +8,23 @@ supported languages are Python and Lisp.
 
 Each language requires one or more auxiliary libraries to be installed on your system:
 
-- **lisp** requires libsbcl in your library path.
+### Lisp
 
-- **python** requires libpython3.11 or later in your library path.
+Requires libsbcl in your library path.  Either install libsbcl with your
+favorite package manager or build and install it yourself.
+
+## Python
+
+Requires libpython3.11 or later in your library path.  To select a particular
+python environment, put the following into your ```.sbclrc```:
+
+```lisp
+(progn
+  (ql:quickload :cffi)
+  (pushnew "~/miniforge3/envs/MYENV/lib/"
+           (symbol-value (intern "*FOREIGN-LIBRARY-DIRECTORIES*" "CFFI"))
+           :test #'string=))
+```
 
 ## Showcases
 

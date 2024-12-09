@@ -25,7 +25,7 @@
   (:unix (:or "libpython3.12.so"
               "libpython3.11.so.1"
               "libpython3.11.so"))
-  (t (:or (:default "libpython3.11")
+  (t (:or (:default "libpython3.12")
           (:default "libpython3.11"))))
 
 ;; Load Python as a shared library if its foreign symbols aren't available yet.

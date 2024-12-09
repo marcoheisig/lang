@@ -28,7 +28,15 @@
 (defun lang-searcher (name)
   (multiple-value-bind (lang module-name)
       (parse-system-name name)
-    (when (and lang module-name)
+    (when (and (stringp lang)
+               (stringp module-name))
+      ;; Load the language's system if it exists but hasn't been loaded, yet.
+      (let ((lang-system (asdf:find-system (format nil "lang.~A" lang))))
+        (when lang-system
+          (unless (asdf:component-loaded-p lang-system)
+            (asdf:load-system lang-system))))
+      ;; Check whether there is a suitable finder for the selected language
+      ;; and, if so, use it to find or generate the right ASDF system.
       (multiple-value-bind (lang-searcher presentp)
           (gethash lang *lang-searchers*)
         (when presentp
