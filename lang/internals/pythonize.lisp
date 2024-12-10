@@ -30,19 +30,37 @@
      (string string))
   (python-string-from-lisp-string string))
 
+(defmethod (setf slot-ref) (value (list python:list) (position integer))
+  (with-pyobjects ((pylist list) (pyvalue value))
+    (pylist-setitem pylist position pyvalue)
+    value))
+
 #+(or)
+(defmethod (setf slot-ref) ((list python:dict) (key t) value)
+  (setf (python- list position)
+        value))
+
 (defmethod convert-object
     ((strategy pythonize)
-     (simple-vector simple-vector))
-  (let ((length (length simple-vector))
-        (list (make-python-list length)))
-    (loop for position below length do
-      (setf (python-lisp-element list position)
-            (convert-slot strategy simple-vector position (svref simple-vector position)))))
-  (make-python-list
-   (ensure-converted-slot (car cons) (pycons value) (python:rplaca tuple value))
-   (convert-slot strategy cons '(car cons) car)
-   (convert-slot strategy cons '(cdr cons) cdr)))
+     (vector vector))
+  (let* ((length (length vector))
+         (pylist (with-global-interpreter-lock-held (pylist-new length))))
+    (loop for position below length
+          for value = (convert-slot strategy vector position (elt vector position))
+          do (with-pyobjects ((pyvalue value))
+               (pylist-setitem pylist position pyvalue)))
+    (mirror-into-lisp pylist)))
+
+(defmethod convert-object
+    ((strategy pythonize)
+     (list list))
+  (let* ((length (length list))
+         (pytuple (with-global-interpreter-lock-held (pytuple-new length))))
+    (loop for position below length
+          for value in list
+          do (with-global-interpreter-lock-held
+               (pytuple-setitem pytuple position (mirror-into-python value))))
+    (mirror-into-lisp pytuple)))
 
 #+(or)
 (defmethod finalize-conversion

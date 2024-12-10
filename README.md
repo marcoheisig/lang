@@ -70,11 +70,11 @@ near impossible, but it is hard to tell which are which in advance.
 We can already convert Python modules into Lisp packages, and all the necessary
 machinery is there.  The next step is to turn Lisp packages into Python
 modules.  The plan is to fill each resulting Python module according to some
-fuzzy heuristics, and give each module `foo` two submodules
-`foo.__lisp_functions__` and `foo.__lisp_values__` that accurately reflect the
-two Lisp namespaces.  Unless there is a collision, these submodules have the
-aliases `foo.functions` and `foo.values`.  When a Lisp package name contains
-dots, we turn it into several nested modules.
+fuzzy heuristics, and give each module `foo` two submodules `foo.__functions__`
+and `foo.__values__` that accurately reflect the two Lisp namespaces.  Unless
+there is a collision, these submodules have the aliases `foo.functions` and
+`foo.values`.  When a Lisp package name contains dots, we turn it into several
+nested modules.
 
 A possible next step would be to not just convert packages to modules, but to
 turn them into modules directly, i.e., to have Lisp packages inherit from the

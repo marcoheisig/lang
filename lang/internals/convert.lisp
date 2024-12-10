@@ -23,13 +23,6 @@ reference.")
   (:method (strategy object)
     '.dummy-object.))
 
-(defgeneric convert-slot (strategy object slot-specifier slot-value)
-  (:documentation
-   "Converts the value of the specified slot of the supplied object.  In case the
-slot contains a circular reference, returns the result of a call to
-CONVERT-OBJECT-TO-DUMMY and arranges that a suitable slot update is later
-passed to FINALIZE-CONVERSION."))
-
 (defgeneric register-converted-object (strategy object conversion)
   (:documentation
    "Declare that the conversion of the supplied object is known, although possibly
@@ -38,37 +31,45 @@ converting its slots may allow for more efficient handling of circularities.")
   (:method (strategy object conversion)
     (values)))
 
-(defgeneric finalize-conversion (strategy object converted-object slot-conversions)
+(defgeneric convert-slot (strategy object slot-specifier slot-value)
   (:documentation
-   "Apply the specified slot updates in such a way that each
-specified slot of the converted object holds the converted slot value.  This
-generic function is invoked whenever an object contains at least one unresolved
-circular reference."))
+   "Converts the value of the specified slot of the supplied object.  In case the
+slot contains a circular reference, returns the result of a call to
+CONVERT-OBJECT-TO-DUMMY and arranges that (SETF SLOT-REF) is later called to
+update the converted object's slot to hold the converted slot value."))
 
-(defgeneric slot-conversion-original-value (slot-conversion)
+(defgeneric (setf slot-ref) (value object slot-specifier)
+  (:documentation
+   "Update the specified slot of the supplied object to hold the supplied value.")
+  (:method (value (cons cons) (slot (eql 'car)))
+    (setf (car cons) value))
+  (:method (value (cons cons) (slot (eql 'cdr)))
+    (setf (cdr cons) value))
+  (:method (value (sequence sequence) (index integer))
+    (setf (elt sequence index) value))
+  (:method (value (array array) (row-major-index integer))
+    (setf (row-major-aref array row-major-index) value))
+  (:method (value (object t) (slot-name symbol))
+    (setf (slot-value object slot-name) value)))
+
+(defgeneric slot-conversion-object (slot-conversion)
   (:documentation
    "The object that used to be stored in that slot and that ought to be converted."))
 
-(defgeneric slot-conversion-converted-value (slot-conversion)
-  (:documentation
-   "The value of that slot after conversion."))
-
-(defgeneric slot-conversion-specifier (slot-conversion)
+(defgeneric slot-conversion-slot (slot-conversion)
   (:documentation
    "An arbitrary object that describes the slot that is to be updated to the
 slot update's converted value."))
 
 (defclass slot-conversion ()
-  ((%original-value
-    :initarg :original-value
-    :initform (alexandria:required-argument :original-value)
-    :reader slot-conversion-original-value)
-   (%converted-value
-    :accessor slot-conversion-converted-value)
-   (%specifier
-    :initarg :specifier
-    :initform (alexandria:required-argument :speficier)
-    :reader slot-conversion-specifier)))
+  ((%object
+    :initarg :object
+    :initform (alexandria:required-argument :object)
+    :reader slot-conversion-object)
+   (%slot
+    :initarg :slot
+    :initform (alexandria:required-argument :slot)
+    :reader slot-conversion-slot)))
 
 ;;; Convert Once
 
@@ -111,7 +112,7 @@ process.")
 or the result of the conversion.")
 
 (defvar *convert-graph-slot-conversions* nil
-  "A hash table, mapping from not-yet-finalized objects to their list of pending
+  "A hash table, mapping from objects being converted to their list of pending
 slot updates.")
 
 (defmethod convert :around
@@ -119,30 +120,26 @@ slot updates.")
   (let ((*convert-graph-conversion-in-progress-marker* (list '.conversion-in-progress.))
         (*convert-graph-table* (make-hash-table))
         (*convert-graph-slot-conversions* (make-hash-table)))
-    (call-next-method)))
-
-(defmethod convert :after
-    (object (strategy convert-graph))
-  (declare (ignore object))
-  (maphash
-   (lambda (object slot-conversions)
-     ;; Look up the converted value of the object being finalized.
-     (multiple-value-bind (converted-object presentp)
-         (gethash object *convert-graph-table*)
-       (when (not presentp)
-         (error "Attempting to update an object that has never been converted."))
-       ;; Determine the converted value of each slot update instance.
-       (dolist (slot-conversion slot-conversions)
-         (multiple-value-bind (converted-value presentp)
-             (gethash (slot-conversion-original-value slot-conversion)
-                      *convert-graph-table*)
+    (prog1 (call-next-method)
+      ;; Update the slots of all converted objects that contain circular
+      ;; references.
+      (maphash
+       (lambda (object slot-conversions)
+         ;; Look up the converted value of the object being finalized.
+         (multiple-value-bind (converted-object presentp)
+             (gethash object *convert-graph-table*)
            (when (not presentp)
-             (error "Attempting to update a slot that has never been converted."))
-           (setf (slot-conversion-converted-value slot-conversion)
-                 converted-value)))
-       ;; Finalize the object.
-       (finalize-conversion strategy object converted-object slot-conversions)))
-   *convert-graph-slot-conversions*))
+             (error "Attempting to update an object that has never been converted."))
+           ;; Update each slot.
+           (dolist (slot-conversion slot-conversions)
+             (multiple-value-bind (converted-value presentp)
+                 (gethash (slot-conversion-object slot-conversion)
+                          *convert-graph-table*)
+               (when (not presentp)
+                 (error "Attempting to update a slot that has never been converted."))
+               (setf (slot-ref converted-object (slot-conversion-slot slot-conversion))
+                     converted-value)))))
+       *convert-graph-slot-conversions*))))
 
 (defmethod convert-object :before
     ((strategy convert-graph) object)
@@ -171,8 +168,8 @@ slot updates.")
       ;; that slot is being patched later.
       ((eq converted *convert-graph-conversion-in-progress-marker*)
        (push (make-instance 'slot-conversion
-               :original-value slot-value
-               :specifier slot-specifier)
+               :object slot-value
+               :slot slot-specifier)
              (gethash object *convert-graph-slot-conversions* '()))
        (convert-object-to-dummy strategy slot-value))
       ;; Otherwise the object has already been converted and we can simply
@@ -183,8 +180,3 @@ slot updates.")
     ((strategy convert-graph) object conversion)
   (setf (gethash object *convert-graph-table*)
         conversion))
-
-(defmethod finalize-conversion
-    ((strategy convert-graph) object converted-object slot-conversions)
-  (error "Don't know how to finalize ~S in this context."
-         converted-object))

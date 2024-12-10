@@ -62,9 +62,9 @@
            (list (make-list size)))
       (register-converted-object strategy tuple list)
       (loop for position below size
-            for (head) on list
+            for (cons) on list
             for value = (pytuple-getitem pytuple position)
-            do (setf (first list)
+            do (setf (car cons)
                      (convert-slot strategy tuple position value)))
       list)))
 
