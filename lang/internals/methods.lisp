@@ -74,13 +74,11 @@
   (let* ((hash (sxhash object))
          (lo (ldb (byte 32 0) hash))
          (hi (ldb (byte #.(ceiling (log most-positive-fixnum 2)) 32) hash)))
-    (python-integer-from-lisp-integer
-     (logxor lo hi))))
+    (logxor lo hi)))
 
 (defmethod __hash__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
-    (python-integer-from-lisp-integer
-     (pyobject-hash pyobject))))
+    (pyobject-hash pyobject)))
 
 (defmethod __len__ ((sequence sequence))
   (length sequence))

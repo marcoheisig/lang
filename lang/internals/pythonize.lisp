@@ -13,61 +13,78 @@
   ())
 
 (defun pythonize (object &optional (strategy 'pythonize-graph))
-  (convert object strategy))
+  (convert strategy object))
 
 (defmethod convert-object
     ((strategy pythonize)
      (integer integer))
+  "Converts Lisp integers to Python integers."
   (python-integer-from-lisp-integer integer))
 
 (defmethod convert-object
     ((strategy pythonize)
      (float float))
+  "Converts Lisp floats to Python floats."
   (python-float-from-lisp-float float))
 
 (defmethod convert-object
     ((strategy pythonize)
      (string string))
+  "Converts Lisp strings to Python strings."
   (python-string-from-lisp-string string))
-
-(defmethod (setf slot-ref) (value (list python:list) (position integer))
-  (with-pyobjects ((pylist list) (pyvalue value))
-    (pylist-setitem pylist position pyvalue)
-    value))
-
-#+(or)
-(defmethod (setf slot-ref) ((list python:dict) (key t) value)
-  (setf (python- list position)
-        value))
 
 (defmethod convert-object
     ((strategy pythonize)
      (vector vector))
+  "Converts Lisp vectors to Python lists."
   (let* ((length (length vector))
-         (pylist (with-global-interpreter-lock-held (pylist-new length))))
-    (loop for position below length
-          for value = (convert-slot strategy vector position (elt vector position))
-          do (with-pyobjects ((pyvalue value))
-               (pylist-setitem pylist position pyvalue)))
-    (mirror-into-lisp pylist)))
+         (list
+           (move-into-lisp
+            (with-global-interpreter-lock-held
+                (pylist-new length)))))
+    (values
+     list
+     (lambda ()
+       (with-pyobjects ((pylist list))
+         (loop for position below length
+               for value = (convert-object strategy (elt vector position))
+               do (with-pyobjects ((pyvalue value))
+                    (pylist-setitem pylist position pyvalue))))))))
 
 (defmethod convert-object
     ((strategy pythonize)
      (list list))
+  "Converts Lisp lists to Python tuples."
   (let* ((length (length list))
-         (pytuple (with-global-interpreter-lock-held (pytuple-new length))))
-    (loop for position below length
-          for value in list
-          do (with-global-interpreter-lock-held
-               (pytuple-setitem pytuple position (mirror-into-python value))))
-    (mirror-into-lisp pytuple)))
+         (tuple
+           (move-into-lisp
+            (with-global-interpreter-lock-held
+                (pytuple-new length)))))
+    (values
+     tuple
+     (lambda ()
+       (with-pyobjects ((pytuple tuple))
+         (loop for position below length
+               for value in list
+               do (with-pyobjects ((pyvalue value))
+                    (pytuple-setitem pytuple position pyvalue))))))))
 
-#+(or)
-(defmethod finalize-conversion
-    ((strategy pythonize-graph)
-     (simple-vector simple-vector)
-     (python-list python:list)
-     slots)
-  (loop for (value index) in slots do
-    (setf (python-list-elt python-list index)
-          value)))
+(defmethod convert-object
+    ((strategy pythonize)
+     (hash-table hash-table))
+  "Converts Lisp hash tables to Python dicts."
+  (let* ((dict
+           (move-into-lisp
+            (with-global-interpreter-lock-held
+              (pydict-new)))))
+    (values
+     dict
+     (lambda ()
+       (with-pyobjects ((pydict dict))
+         (maphash
+          (lambda (key value)
+            (with-pyobjects ((pykey (convert-object strategy key))
+                             (pyvalue (convert-object strategy value)))
+              (pydict-setitem pydict pykey pyvalue)
+              (values)))
+          hash-table))))))

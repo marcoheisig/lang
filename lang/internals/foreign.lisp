@@ -317,6 +317,9 @@
 
 ;;; PyIter
 
+(cffi:defcfun ("PySeqIter_New" pyiter-new) pyobject
+  (pyobject pyobject))
+
 (cffi:defcfun ("PyIter_Check" pyiterp) :bool
   (pyobject pyobject))
 

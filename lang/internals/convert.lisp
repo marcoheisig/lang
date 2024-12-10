@@ -1,75 +1,17 @@
 (in-package #:lang.internals)
 
-(defgeneric convert (object strategy)
-  (:argument-precedence-order strategy object)
+(defgeneric convert (strategy object)
   (:documentation
    "Converts the supplied object, and possibly the objects referenced therein,
 using some strategy.  The strategy should be an instance of a class that
 describes the exact nature of the conversion, or the name of such a class.")
-  (:method (object strategy)
-    (convert-object strategy object))
-  (:method (object (strategy symbol))
-    (convert object (make-instance strategy))))
+  (:method ((strategy symbol) object)
+    (convert (make-instance strategy) object)))
 
 (defgeneric convert-object (strategy object)
   (:documentation
-   "Converts the supplied object using some strategy."))
-
-(defgeneric convert-object-to-dummy (strategy object)
-  (:documentation
-   "Converts the supplied object to a dummy object whose slots need not be
-converted further.  Used to temporarily fill slots that contain a circular
-reference.")
-  (:method (strategy object)
-    '.dummy-object.))
-
-(defgeneric register-converted-object (strategy object conversion)
-  (:documentation
-   "Declare that the conversion of the supplied object is known, although possibly
-not yet fully initialized.  Registering a converted object this way before
-converting its slots may allow for more efficient handling of circularities.")
-  (:method (strategy object conversion)
-    (values)))
-
-(defgeneric convert-slot (strategy object slot-specifier slot-value)
-  (:documentation
-   "Converts the value of the specified slot of the supplied object.  In case the
-slot contains a circular reference, returns the result of a call to
-CONVERT-OBJECT-TO-DUMMY and arranges that (SETF SLOT-REF) is later called to
-update the converted object's slot to hold the converted slot value."))
-
-(defgeneric (setf slot-ref) (value object slot-specifier)
-  (:documentation
-   "Update the specified slot of the supplied object to hold the supplied value.")
-  (:method (value (cons cons) (slot (eql 'car)))
-    (setf (car cons) value))
-  (:method (value (cons cons) (slot (eql 'cdr)))
-    (setf (cdr cons) value))
-  (:method (value (sequence sequence) (index integer))
-    (setf (elt sequence index) value))
-  (:method (value (array array) (row-major-index integer))
-    (setf (row-major-aref array row-major-index) value))
-  (:method (value (object t) (slot-name symbol))
-    (setf (slot-value object slot-name) value)))
-
-(defgeneric slot-conversion-object (slot-conversion)
-  (:documentation
-   "The object that used to be stored in that slot and that ought to be converted."))
-
-(defgeneric slot-conversion-slot (slot-conversion)
-  (:documentation
-   "An arbitrary object that describes the slot that is to be updated to the
-slot update's converted value."))
-
-(defclass slot-conversion ()
-  ((%object
-    :initarg :object
-    :initform (alexandria:required-argument :object)
-    :reader slot-conversion-object)
-   (%slot
-    :initarg :slot
-    :initform (alexandria:required-argument :slot)
-    :reader slot-conversion-slot)))
+   "Returns the converted object, and, optionally, a second value that is a thunk
+that initializes all references within that converted object."))
 
 ;;; Convert Once
 
@@ -78,9 +20,19 @@ slot update's converted value."))
   (:documentation
    "Convert the supplied object, but don't convert any of its slots."))
 
-(defmethod convert-slot
-    (strategy object slot-specifier slot-value)
-  slot-value)
+(defvar *convert-once-marker* nil)
+
+(defmethod convert ((strategy convert-once) object)
+  (multiple-value-bind (converted thunk)
+      (convert-object strategy object)
+    (let ((*convert-once-marker* t))
+      (when thunk (funcall thunk)))
+    converted))
+
+(defmethod convert-object ((strategy convert-once) object)
+  (if *convert-once-marker*
+      object
+      (call-next-method)))
 
 ;;; Convert Tree
 
@@ -90,10 +42,22 @@ slot update's converted value."))
    "Convert the supplied object, its slots, and the slots thereof, but don't
 check for circularity or multiply referenced objects."))
 
-(defmethod convert-slot
-    ((strategy convert-tree) object slot-specifier slot-value)
-  (declare (ignore object slot-specifier))
-  (convert-object strategy slot-value))
+(defvar *convert-tree-worklist* nil
+  "An adjustable vector that tracks all initialization thunks that have yet to run.")
+
+(defmethod convert ((strategy convert-tree) object)
+  (let ((*convert-tree-worklist* (make-array 0 :adjustable t :fill-pointer t)))
+    (prog1 (convert-object strategy object)
+      (loop until (zerop (length *convert-tree-worklist*)) do
+        (funcall (vector-pop *convert-tree-worklist*))))))
+
+;;; Arrange that any thunk returned by CONVERT-OBJECT is pushed to the
+;;; worklist.
+(defmethod convert-object :around ((strategy convert-tree) object)
+  (multiple-value-bind (converted thunk)
+      (call-next-method)
+    (when thunk (vector-push-extend thunk *convert-tree-worklist*))
+    (values converted thunk)))
 
 ;;; Convert Graph
 
@@ -111,72 +75,34 @@ process.")
   "A hash table, mapping from objects to either the conversion-in-progress marker
 or the result of the conversion.")
 
-(defvar *convert-graph-slot-conversions* nil
-  "A hash table, mapping from objects being converted to their list of pending
-slot updates.")
+(defvar *convert-graph-worklist* nil
+  "An adjustable vector that tracks all initialization thunks that have yet to run.")
 
-(defmethod convert :around
-    (object (strategy convert-graph))
+(defmethod convert
+    ((strategy convert-graph) object)
   (let ((*convert-graph-conversion-in-progress-marker* (list '.conversion-in-progress.))
         (*convert-graph-table* (make-hash-table))
-        (*convert-graph-slot-conversions* (make-hash-table)))
-    (prog1 (call-next-method)
-      ;; Update the slots of all converted objects that contain circular
-      ;; references.
-      (maphash
-       (lambda (object slot-conversions)
-         ;; Look up the converted value of the object being finalized.
-         (multiple-value-bind (converted-object presentp)
-             (gethash object *convert-graph-table*)
-           (when (not presentp)
-             (error "Attempting to update an object that has never been converted."))
-           ;; Update each slot.
-           (dolist (slot-conversion slot-conversions)
-             (multiple-value-bind (converted-value presentp)
-                 (gethash (slot-conversion-object slot-conversion)
-                          *convert-graph-table*)
-               (when (not presentp)
-                 (error "Attempting to update a slot that has never been converted."))
-               (setf (slot-ref converted-object (slot-conversion-slot slot-conversion))
-                     converted-value)))))
-       *convert-graph-slot-conversions*))))
-
-(defmethod convert-object :before
-    ((strategy convert-graph) object)
-  (setf (gethash object *convert-graph-table*)
-        *convert-graph-conversion-in-progress-marker*))
+        (*convert-graph-worklist* (make-array 0 :adjustable t :fill-pointer t)))
+    (prog1 (convert-object strategy object)
+      (loop until (zerop (length *convert-graph-worklist*)) do
+        (funcall (vector-pop *convert-graph-worklist*))))))
 
 (defmethod convert-object :around
     ((strategy convert-graph) object)
-  (let ((converted-object (call-next-method)))
-    (register-converted-object strategy object converted-object)
-    converted-object))
-
-(defmethod convert-slot
-    ((strategy convert-graph)
-     object
-     slot-specifier
-     slot-value)
-  (multiple-value-bind (converted presentp)
-      (gethash slot-value *convert-graph-table*)
-    (cond
-      ;; If there is no cache entry, convert the slot value.
-      ((not presentp)
-       (convert-object strategy slot-value))
-      ;; If the child is already being converted, we are dealing with a
-      ;; circular reference.  If so, return a dummy object for now and ensure
-      ;; that slot is being patched later.
-      ((eq converted *convert-graph-conversion-in-progress-marker*)
-       (push (make-instance 'slot-conversion
-               :object slot-value
-               :slot slot-specifier)
-             (gethash object *convert-graph-slot-conversions* '()))
-       (convert-object-to-dummy strategy slot-value))
-      ;; Otherwise the object has already been converted and we can simply
-      ;; return the result of that conversion.
-      (t slot-value))))
-
-(defmethod register-converted-object
-    ((strategy convert-graph) object conversion)
-  (setf (gethash object *convert-graph-table*)
-        conversion))
+  (multiple-value-bind (conversion presentp)
+      (gethash object *convert-graph-table*)
+    (cond ((eq conversion *convert-graph-conversion-in-progress-marker*)
+           (error "~@<Erroneous calls to CONVERT-OBJECT on the same object, ~
+                 probably by a method that doesn't take circularity ~
+                 into account.~:@>"))
+          (presentp conversion)
+          (t
+           (setf (gethash object *convert-graph-table*)
+                 *convert-graph-conversion-in-progress-marker*)
+           (multiple-value-bind (conversion thunk)
+               (call-next-method)
+             (setf (gethash object *convert-graph-table*)
+                   conversion)
+             (when thunk
+               (vector-push-extend thunk *convert-graph-worklist*))
+             (values conversion thunk))))))
