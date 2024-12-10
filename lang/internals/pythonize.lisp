@@ -29,6 +29,12 @@
 
 (defmethod convert-object
     ((strategy pythonize)
+     (complex complex))
+  "Converts Lisp complex numbers to Python complex numbers."
+  (python-complex-from-lisp-complex complex))
+
+(defmethod convert-object
+    ((strategy pythonize)
      (string string))
   "Converts Lisp strings to Python strings."
   (python-string-from-lisp-string string))

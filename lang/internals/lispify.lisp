@@ -42,6 +42,12 @@
 
 (defmethod convert-object
     ((strategy lispify)
+     (complex python:complex))
+  "Converts Python complex numbers to Lisp complex numbers."
+  (lisp-complex-from-python-complex complex))
+
+(defmethod convert-object
+    ((strategy lispify)
      (str python:str))
   "Converts Python strings to Lisp strings."
   (lisp-string-from-python-string str))
