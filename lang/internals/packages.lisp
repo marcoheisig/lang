@@ -167,6 +167,7 @@
      #:bin
      #:bool
      #:breakpoint
+     #:builtin-function-or-method
      #:bytearray
      #:bytes
      #:callable

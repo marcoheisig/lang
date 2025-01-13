@@ -11,7 +11,7 @@
 (sb-alien:define-alien-callable ("posix_argv" %posix-argv) sb-alien:void ())
 
 (defun load-lang ()
-  (handler-case (asdf:load-system :lang :force t :verbose t)
+  (handler-case (asdf:load-system "lang.internals" :force t :verbose t)
     (error (e)
       (format t "Caught error ~A." e)
       (finish-output))))

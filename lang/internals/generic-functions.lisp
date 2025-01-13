@@ -81,6 +81,10 @@ object."))
 
 (define-pycallable __str__ (object))
 
+(define-pycallable __get__ (descriptor instance owner))
+
+(define-pycallable __set__ (descriptor instance value))
+
 ;;; Comparisons
 
 (defgeneric __lt__ (object-1 object-2)
@@ -262,3 +266,13 @@ object."))
   (:documentation
    "Returns a list of alternating slot keywords and callables that describe the
 function attributes of the Python type corresponding to the supplied class."))
+
+;;; Conversion
+
+(defgeneric lispify-number (number))
+
+(defgeneric lispify-string (string))
+
+(defgeneric pythonize-number (number))
+
+(defgeneric pythonize-string (number))

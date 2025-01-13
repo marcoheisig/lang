@@ -859,6 +859,13 @@
   (:base-exc-subclass     #.(ash 1 30))
   (:type-subclass         #.(ash 1 31)))
 
+(cffi:defcstruct pygetsetdef
+  (name (:pointer :char))
+  (getter :pointer)
+  (setter :pointer)
+  (doc (:pointer :char))
+  (closure :pointer))
+
 (cffi:defcstruct pytype-slot
   (id :int)
   (value :pointer))

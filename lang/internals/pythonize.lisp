@@ -94,3 +94,95 @@
               (pydict-setitem pydict pykey pyvalue)
               (values)))
           hash-table))))))
+
+(defmethod convert-object
+    ((strategy pythonize)
+     (package package))
+  "Convert Lisp packages to Python modules."
+  (let* ((name (format nil "lang.lisp.~(~A~)" (package-name package)))
+         (fname (format nil "~A.__functions__" name))
+         (vname (format nil "~A.__variables__" name))
+         (module (funcall python:module (python-string-from-lisp-string name)))
+         (fmodule (funcall python:module (python-string-from-lisp-string fname)))
+         (vmodule (funcall python:module (python-string-from-lisp-string vname))))
+    (python:setattr module (pythonize "__functions__") fmodule)
+    (python:setattr module (pythonize "__variables__") vmodule)
+    (values
+     module
+     (lambda ()
+       ;; Initialize the fmodule and vmodule.
+       (loop for s being the symbols of package do
+         (let* ((lisp-name (symbol-name s))
+                (python-name
+                  (python-string-from-lisp-string
+                   (string-downcase lisp-name))))
+           (when (and (fboundp s)
+                      (not (macro-function s))
+                      (not (special-operator-p s))
+                      (functionp (symbol-function s)))
+             (setf (python:getattr fmodule python-name)
+                   (positional-argument
+                    (symbol-function s))))
+           ;; TODO bind to a property, not the value.
+           (when (and (boundp s))
+             (setf (python:getattr vmodule python-name)
+                   (positional-argument
+                    (symbol-value s))))))
+       ;; Copy definitions from fmodule and vmodule to the actual module.
+
+       ;; Create the m.functions and m.variables alias unless those symbols
+       ;; already have an attached definition.
+       ))))
+
+(cffi:defcallback get-symbol-function pyobject
+    ((pyobject pyobject)
+     (pysymbol pyobject))
+  (declare (ignore pyobject))
+  (let ((symbol (mirror-into-lisp pysymbol)))
+    (assert (symbolp symbol))
+    (mirror-into-python (fdefinition symbol))))
+
+(cffi:defcallback set-symbol-function pystatus
+    ((pyobject pyobject)
+     (pyvalue pyobject)
+     (pysymbol pyobject))
+  (declare (ignore pyobject))
+  (let ((symbol (mirror-into-lisp pysymbol))
+        (value (mirror-into-lisp pyvalue)))
+    (assert (symbolp symbol))
+    (assert (functionp value))
+    (setf (symbol-function symbol)
+          value)
+    (values 0)))
+
+(cffi:defcallback get-symbol-value pyobject
+    ((pyobject pyobject)
+     (pysymbol pyobject))
+  (declare (ignore pyobject))
+  (let ((symbol (mirror-into-lisp pysymbol)))
+    (assert (symbolp symbol))
+    (mirror-into-python (symbol-value symbol))))
+
+(cffi:defcallback set-symbol-value pystatus
+    ((pyobject pyobject)
+     (pyvalue pyobject)
+     (pysymbol pyobject))
+  (declare (ignore pyobject))
+  (let ((symbol (mirror-into-lisp pysymbol))
+        (value (mirror-into-lisp pyvalue)))
+    (assert (symbolp symbol))
+    (setf (symbol-value symbol)
+          value)
+    (values 0)))
+
+#+(or)
+(defvar symbol-function-descriptor
+  (mirror-into-lisp
+   (make-pytype
+    "lang.lisp.SymbolFunctionDescriptor"
+    +pyobject-type-size+
+    0
+    '(:default)
+    :tp-getset TODO
+    )
+   ))

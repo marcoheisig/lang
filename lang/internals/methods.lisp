@@ -1,5 +1,58 @@
 (in-package #:lang.internals)
 
+;;; Conversion to Lisp
+
+(defmethod lispify-number ((python-float python:float))
+  (lisp-float-from-python-float python-float))
+
+(defun lisp-float-from-python-float (python-float)
+  (declare (python:float python-float))
+  (with-pyobjects ((pyfloat python-float))
+    (pyfloat-as-double pyfloat)))
+
+(defmethod lispify-number ((python-complex python:complex))
+  (lisp-complex-from-python-complex python-complex))
+
+(defun lisp-complex-from-python-complex (python-complex)
+  (declare (python:complex python-complex))
+  (with-pyobjects ((pycomplex python-complex))
+    (complex (pycomplex-real-as-double pycomplex)
+             (pycomplex-imag-as-double pycomplex))))
+
+(defmethod lispify-number ((python-object python:object))
+  (with-pyobjects ((pyobject python-object))
+    (cond ((pyobject-hasattr-string pyobject "__int__")
+           (move-into-lisp (pynumber-long pyobject)))
+          ((pyobject-hasattr-string pyobject "__float__")
+           (move-into-lisp (pynumber-float pyobject)))
+          (t
+           (call-next-method)))))
+
+;;; Conversion to Python
+
+(defmethod pythonize-number ((float float))
+  (python-float-from-lisp-float float))
+
+(defun python-float-from-lisp-float (lisp-float)
+  (declare (float lisp-float))
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pyfloat-from-double
+      (coerce lisp-float 'double-float)))))
+
+(defmethod pythonize-number ((complex complex))
+  (python-complex-from-lisp-complex complex))
+
+(defun python-complex-from-lisp-complex (lisp-complex)
+  (declare (complex lisp-complex))
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pycomplex-from-doubles
+      (coerce (realpart lisp-complex) 'double-float)
+      (coerce (imagpart lisp-complex) 'double-float)))))
+
+;;; Methods of Callback Functions
+
 (defmethod __repr__ ((object t))
   (python-string-from-lisp-string
    (with-output-to-string (stream)

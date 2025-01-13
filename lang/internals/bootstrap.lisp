@@ -21,38 +21,6 @@
      (superclass funcallable-standard-class))
   t)
 
-;;; Early Object Conversion
-
-(defun string-from-pyobject (pyobject)
-  "Returns a Lisp string with the same content as the supplied PyObject."
-  (declare (pyobject pyobject))
-  (cffi:with-foreign-object (size-pointer :size)
-    (let* ((char-pointer
-             (with-global-interpreter-lock-held
-               (pyunicode-as-utf8-string pyobject size-pointer)))
-           (nbytes (if (cffi:null-pointer-p char-pointer)
-                       (error "Failed to convert string from Python to Lisp.")
-                       (cffi:mem-ref size-pointer :size)))
-           (octets (make-array nbytes :element-type '(unsigned-byte 8))))
-      (loop for index below nbytes do
-        (setf (aref octets index)
-              (cffi:mem-aref char-pointer :uchar index)))
-      (sb-ext:octets-to-string octets :external-format :utf-8))))
-
-(defun pyobject-from-string (string)
-  "Returns a PyObject with the same content as the supplied Lisp string."
-  (declare (alexandria:string-designator string))
-  (let* ((string (string string))
-         (octets (sb-ext:string-to-octets string :external-format :utf-8))
-         (nbytes (length octets)))
-    (cffi:with-foreign-object (errors :pointer)
-      (cffi:with-foreign-object (char-pointer :uchar nbytes)
-        (loop for index below nbytes do
-          (setf (cffi:mem-ref char-pointer :uchar index)
-                (aref octets index)))
-        (with-global-interpreter-lock-held
-          (pyunicode-decode-utf8 char-pointer nbytes errors))))))
-
 ;;; Lispifying Generic Functions
 
 (declaim (ftype (function (t &optional t) (values t &optional)) lispify))
@@ -173,3 +141,37 @@ the PyObject's refcount."
         (pyobject-decref pyobject)
         (setf (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
               (1- value)))))
+
+;;; String Conversion
+
+(defun string-from-pyobject (pyobject)
+  "Returns a Lisp string with the same content as the supplied PyObject."
+  (declare (pyobject pyobject))
+  (cffi:with-foreign-object (size-pointer :size)
+    (let* ((char-pointer
+             (with-global-interpreter-lock-held
+               (pyunicode-as-utf8-string pyobject size-pointer)))
+           (nbytes (if (cffi:null-pointer-p char-pointer)
+                       (error "Failed to convert string from Python to Lisp.")
+                       (cffi:mem-ref size-pointer :size)))
+           (octets (make-array nbytes :element-type '(unsigned-byte 8))))
+      (loop for index below nbytes do
+        (setf (aref octets index)
+              (cffi:mem-aref char-pointer :uchar index)))
+      (sb-ext:octets-to-string octets :external-format :utf-8))))
+
+
+(defun pyobject-from-string (string)
+  "Returns a PyObject with the same content as the supplied Lisp string."
+  (declare (alexandria:string-designator string))
+  (let* ((string (string string))
+         (octets (sb-ext:string-to-octets string :external-format :utf-8))
+         (nbytes (length octets)))
+    (cffi:with-foreign-object (errors :pointer)
+      (cffi:with-foreign-object (char-pointer :uchar nbytes)
+        (loop for index below nbytes do
+          (setf (cffi:mem-ref char-pointer :uchar index)
+                (aref octets index)))
+        (with-global-interpreter-lock-held
+          (pyunicode-decode-utf8 char-pointer nbytes errors))))))
+

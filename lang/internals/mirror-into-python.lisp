@@ -103,33 +103,38 @@ object.")
           (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5) (arg 6)
                  (loop for index from 7 below nargs collect (arg index)))))))))
 
-
+(defmethod pythonize-name ((string string))
+  (string-downcase string))
 
 (defclass lisp-object ()
-  ())
+  ()
+  (:documentation
+   "The type of all Common Lisp objects on the Python heap."))
 
 (defclass lisp-type ()
-  ())
+  ()
+  (:documentation
+   "The type of all Common Lisp types on the Python heap."))
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-object))))
-  (make-pytype "lang.lisp.lisp_object"
-               (+ +pyobject-header-size+ +pointer-size+)
-               0
-               '(:default :basetype)
-               :tp-base *object-pyobject*
-               :tp-doc (cffi:null-pointer) ;; TODO
-               :tp-finalize (cffi:callback __finalize__)
-))
+  (make-pytype
+   "lang.lisp.LispObject"
+   (+ +pyobject-header-size+ +pointer-size+)
+   0
+   '(:default :basetype)
+   :tp-base *object-pyobject*
+   :tp-doc (cffi:null-pointer)
+   :tp-finalize (cffi:callback __finalize__)))
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-type))))
   (apply
    #'make-pytype
-   "lang.lisp.lisp_type"
+   "lang.lisp.LispType"
    (+ +pyobject-type-size+ +pointer-size+)
    0
    '(:default :basetype :type-subclass)
    :tp-base *type-pyobject*
-   :tp-doc (cffi:null-pointer) ;; TODO
+   :tp-doc (cffi:null-pointer)
    :tp-finalize (cffi:callback __finalize__)
    (pytype-function-attributes class)))
 
@@ -145,8 +150,8 @@ object.")
                   (class-direct-superclasses class)))
          (type-name
            (format nil "lang.lisp.~A.~A"
-                   (string-downcase (package-name (symbol-package name)))
-                   (string-downcase (symbol-name name)))))
+                   (python-style-name (package-name (symbol-package name)))
+                   (python-style-class-name (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
     (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers)))))
       (loop for super in supers for index from 0 do
@@ -173,7 +178,7 @@ object.")
   (with-pyobjects ((base (find-class 'lisp-object)))
     (apply
      #'make-pytype
-     "lang.lisp.function"
+     "lang.lisp.Function"
      (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
      0
      '(:default :basetype)
@@ -186,6 +191,8 @@ object.")
 (defparameter *pytype-function-attributes*
   '((:tp-repr __repr__)
     (:tp-str __str__)
+    (:tp-descr-get __get__)
+    (:tp-descr-set __set__)
     (:tp-hash __hash__)
     (:tp-richcompare __richcmp__)
     ;; Number Functions
@@ -244,6 +251,8 @@ object.")
 (defun pytype-function-attribute (class function-name)
   (let ((fn (fdefinition function-name)))
     (etypecase fn
+      ;; For generic functions, only define an attribute if at least one of its
+      ;; methods is applicable to the selected class.
       (generic-function
        (let* ((lambda-list (generic-function-lambda-list fn))
               (nargs (length lambda-list)))
@@ -253,4 +262,6 @@ object.")
               (list* class (make-list (1- nargs) :initial-element (find-class 't))))
              (cffi-sys:%callback function-name)
              (cffi:null-pointer))))
+      ;; For non-generic functions, use a pointer to the callback of the same
+      ;; name.
       (function (cffi-sys:%callback function-name)))))

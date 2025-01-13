@@ -171,3 +171,39 @@
 
 (defun (setf python:getattr) (value object key)
   (python:setattr object key value))
+
+;;; Ensure lang is in the Python path.
+#+(or)
+(let* ((op (find-module "operator"))
+       (sys (find-module "sys"))
+       (sys.path (python:getattr sys (pythonize-string "path")))
+       (set (python:set sys.path))
+       (dir (pythonize-string
+             (namestring
+              (asdf:system-source-directory (asdf:find-system "lang" t))))))
+  (unless (truep (funcall (python:getattr op (pythonize-string "contains")) set dir))
+    (funcall (python:getattr sys.path (pythonize-string "append")) dir)))
+
+#+(or)
+(let ((lang.python (find-module "lang.python")))
+  (python:setattr lang.python (pythonize-string "cl")
+                  (module-from-package (find-package "CL"))))
+
+(defun stmt (string)
+  (python:exec
+   (pythonize-string string)
+   *globals*
+   *globals*)
+  (values))
+
+(defun expr (string)
+  (python:eval
+   (pythonize-string string)
+   *globals*
+   *globals*))
+
+(defun python (&rest strings)
+  (loop for (string . rest) on strings do
+    (if (null rest)
+        (return (expr string))
+        (stmt string))))
