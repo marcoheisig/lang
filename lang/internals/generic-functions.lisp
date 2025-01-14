@@ -33,35 +33,20 @@ object."))
       (second form)
       whole))
 
-(define-condition python-error (serious-condition)
-  ((%type
-    :initform (alexandria:required-argument :type)
-    :initarg :type
-    :reader python-error-type)
-   (%value
-    :initform (alexandria:required-argument :value)
-    :initarg :value
-    :reader python-error-value)
-   (%traceback
-    :initform (alexandria:required-argument :traceback)
-    :initarg :traceback
-    :reader python-error-traceback))
-  (:report
-   (lambda (python-error stream)
-     (format stream "Received a Python exception of type ~A:~%~A"
-             (string (class-name (python-error-type python-error)))
-             (python-error-value python-error)))))
+(defvar *in-python-error-handler* nil)
 
 (defun python-error-handler ()
-  (unless (cffi:null-pointer-p (pyerr-occurred))
-    (cffi:with-foreign-objects ((pytype :pointer)
-                                (pyvalue :pointer)
-                                (pytraceback :pointer))
-      (pyerr-fetch pytype pyvalue pytraceback)
-      (error 'python-error
-             :type (move-into-lisp (cffi:mem-ref pytype :pointer))
-             :value (move-into-lisp (cffi:mem-ref pyvalue :pointer))
-             :traceback (move-into-lisp (cffi:mem-ref pytraceback :pointer))))))
+  (with-global-interpreter-lock-held
+    (let ((pyerr (pyerr-get-raised-exception)))
+      (unless (cffi:null-pointer-p pyerr)
+        (pyerr-display-exception pyerr)
+        (error (prog1 (move-into-lisp pyerr)
+                 ;; Detect errors within error handling, but don't signal them
+                 ;; and only report them to avoid infinite recursion.
+                 (let ((pyerr (pyerr-get-raised-exception)))
+                   (unless (cffi:null-pointer-p pyerr)
+                     (pyerr-display-exception pyerr)
+                     (pyerr-clear)))))))))
 
 (defmacro define-pycallable (name lambda-list)
   `(progn

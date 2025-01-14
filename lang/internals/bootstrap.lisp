@@ -16,6 +16,19 @@
   (:documentation
    "A class of the Python programming language."))
 
+;; Unfortunately, CLOS doesn't allow condition metaclasses or conditions that
+;; inherit from non-conditions.  We still translate Python exceptions to Lisp
+;; conditions for convenience, but they are now an exception (pun intended) in
+;; terms of how they are mirrored from Python to Lisp.
+(define-condition python-exception (serious-condition)
+  ((%pyobject
+    :initarg :pyobject
+    :initform (alexandria:required-argument :pyobject)
+    :type pyobject
+    :reader python-object-pyobject))
+  (:documentation
+   "An exception of the Python programming language."))
+
 (defmethod validate-superclass
     ((class python-class)
      (superclass funcallable-standard-class))

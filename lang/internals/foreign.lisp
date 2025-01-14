@@ -278,6 +278,11 @@
 
 (cffi:defcfun ("PyErr_Clear" pyerr-clear) :void)
 
+(cffi:defcfun ("PyErr_GetRaisedException" pyerr-get-raised-exception) :pointer)
+
+(cffi:defcfun ("PyErr_DisplayException" pyerr-display-exception) :void
+  (pyerr pyobject))
+
 (cffi:defcfun ("PyErr_Fetch"  pyerr-fetch) :void
   (pytype (:pointer pyobject))
   (pyvalue (:pointer pyobject))

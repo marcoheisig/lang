@@ -43,6 +43,16 @@ finalizer for it, and register it in the mirror-into-lisp table."
    (prog1 python-object
      (register-python-object-finalizer pyobject python-object))))
 
+(defmethod shared-initialize :after
+    ((python-exception python-exception)
+     (slot-names t)
+     &key pyobject &allow-other-keys)
+  (alexandria:ensure-gethash
+   (pyobject-address pyobject)
+   *mirror-into-lisp-table*
+   (prog1 python-exception
+     (register-python-object-finalizer pyobject python-exception))))
+
 (defun register-python-object-finalizer (pyobject python-object)
   (trivial-garbage:finalize
    python-object
@@ -168,6 +178,9 @@ triggering the start of the keyword argument portion."
  :direct-superclasses (list (find-class 'python:type))
  :pyobject *none-pyobject*)
 
+(define-condition python:base-exception (python-exception)
+  ())
+
 ;; Add a :PACKAGE slot to all mirrored Python modules.
 (ensure-class
  'python:module
@@ -197,25 +210,36 @@ triggering the start of the keyword argument portion."
            (class (if (pyobject-eq pytype pyobject)
                       (error "Encountered an object that is its own type.")
                       (move-into-lisp pytype))))
-      (cond ((pytype-subtypep pytype *type-pyobject*)
-             ;; Create a type.
-             (let* ((class-name (pytype-class-name pyobject))
-                    (direct-superclasses (pytype-direct-superclasses pyobject)))
+      (cond
+        ;; Types
+        ((pytype-subtypep pytype *type-pyobject*)
+         (let ((class-name (pytype-class-name pyobject))
+               (direct-superclasses (pytype-direct-superclasses pyobject)))
+           ;; Create either a condition or a regular Python type.
+           (if (or (eql class-name 'python:base-exception)
+                   (every (lambda (class)
+                            (subtypep (class-name class) 'python-exception))
+                          direct-superclasses))
+               (or (find-class class-name nil)
+                   (find-class
+                    (eval `(define-condition ,class-name
+                               ,(mapcar #'class-name direct-superclasses)
+                             ()))))
                (ensure-class
                 class-name
                 :metaclass class
                 :direct-superclasses direct-superclasses
-                :pyobject pyobject)))
-            ((pytype-subtypep pytype *module-pyobject*)
-             ;; Create a module
-             (make-instance class
-               :pyobject pyobject
-               :package
-               (pymodule-package pyobject)))
-            (t
-             ;; Create an instance.
-             (make-instance class
-               :pyobject pyobject))))))
+                :pyobject pyobject))))
+        ;; Modules
+        ((pytype-subtypep pytype *module-pyobject*)
+         (make-instance class
+           :pyobject pyobject
+           :package
+           (pymodule-package pyobject)))
+        ;; Instances
+        (t
+         (make-instance class
+           :pyobject pyobject))))))
 
 (defun ensure-package (name)
   (declare (string name))
