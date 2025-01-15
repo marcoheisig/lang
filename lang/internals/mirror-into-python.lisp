@@ -136,7 +136,7 @@ object.")
    :tp-base *type-pyobject*
    :tp-doc (cffi:null-pointer)
    :tp-finalize (cffi:callback __finalize__)
-   (pytype-function-attributes class)))
+   (pytype-attributes class)))
 
 (defmethod mirror-into-python ((class class))
   (let* ((name (class-name class))
@@ -169,7 +169,7 @@ object.")
        '(:default :basetype)
        :tp-bases bases
        :tp-doc (cffi:null-pointer)
-       (pytype-function-attributes class)))))
+       (pytype-attributes class)))))
 
 (defmethod mirror-into-python ((class (eql (find-class 't))))
   *object-pyobject*)
@@ -186,7 +186,7 @@ object.")
      :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
      :tp-doc (cffi:null-pointer)
      :tp-call (cffi:callback __call__)
-     (pytype-function-attributes class))))
+     (pytype-attributes class))))
 
 (defparameter *pytype-function-attributes*
   '((:tp-repr __repr__)
@@ -243,10 +243,44 @@ object.")
     (:sq-inplace-concat __iadd__)
     (:sq-inplace-repeat __imul__)))
 
-(defmethod pytype-function-attributes ((class class))
+(defmethod pytype-attributes append ((class class))
   (loop for (slot function-name) in *pytype-function-attributes*
         collect slot
         collect (pytype-function-attribute class function-name)))
+
+(cffi:defcallback __write__ pyobject
+    ((pystream pyobject)
+     (pystr pyobject))
+  (let ((stream (mirror-into-lisp pystream))
+        (string (string-from-pyobject pystr)))
+    (write-string string stream)
+    (pylong-from-long (length string))))
+
+(defmethod pytype-attributes append ((stream-class (eql (find-class 'stream))))
+  (let* ((nmethods 1)
+         (methods (cffi:foreign-alloc '(:struct pymethoddef) :count (1+ nmethods))))
+    ;; Initialize the methods.
+    (loop for index below nmethods do
+      (let ((methoddef (cffi:mem-aptr methods '(:struct pymethoddef) index)))
+        (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'name)
+              (cffi:foreign-string-alloc "write"))
+        (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'meth)
+              (cffi:callback __write__))
+        (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'flags)
+              +meth-o+)
+        (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'doc)
+              (cffi:null-pointer))))
+    ;; Zero-terminate.
+    (let ((methoddef (cffi:mem-aptr methods '(:struct pymethoddef) nmethods)))
+      (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'name)
+            (cffi:null-pointer))
+      (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'meth)
+            (cffi:null-pointer))
+      (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'flags)
+            0)
+      (setf (cffi:foreign-slot-value methoddef '(:struct pymethoddef) 'doc)
+            (cffi:null-pointer)))
+    (list :tp-methods methods)))
 
 (defun pytype-function-attribute (class function-name)
   (let ((fn (fdefinition function-name)))

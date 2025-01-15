@@ -476,3 +476,22 @@
     (format stream "~S ~S"
             (class-name (class-of type))
             (class-name type))))
+
+(defmacro with-place-rebound ((place value) &body body &environment env)
+  (multiple-value-bind (vars values storevars writer-form reader-form)
+      (get-setf-expansion place env)
+    (alexandria:with-gensyms (original-value)
+      `(let* (,@(mapcar #'list vars values)
+              (,original-value ,reader-form)
+              (,(first storevars) ,value))
+         ,writer-form
+         (unwind-protect (progn ,@body)
+           (setf ,(first storevars) ,original-value)
+           ,writer-form)))))
+
+(defmethod print-object ((exception python-exception) stream)
+  (with-global-interpreter-lock-held
+    (with-place-rebound ((getattr *sys-module* (python-string-from-lisp-string "stderr"))
+                         stream)
+      (pyerr-display-exception
+       (python-object-pyobject exception)))))

@@ -864,6 +864,12 @@
   (:base-exc-subclass     #.(ash 1 30))
   (:type-subclass         #.(ash 1 31)))
 
+(cffi:defcstruct pymethoddef
+  (name (:pointer :char))
+  (meth :pointer)
+  (flags :int)
+  (doc (:pointer :char)))
+
 (cffi:defcstruct pygetsetdef
   (name (:pointer :char))
   (getter :pointer)

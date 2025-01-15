@@ -33,13 +33,10 @@ object."))
       (second form)
       whole))
 
-(defvar *in-python-error-handler* nil)
-
 (defun python-error-handler ()
   (with-global-interpreter-lock-held
     (let ((pyerr (pyerr-get-raised-exception)))
       (unless (cffi:null-pointer-p pyerr)
-        (pyerr-display-exception pyerr)
         (error (prog1 (move-into-lisp pyerr)
                  ;; Detect errors within error handling, but don't signal them
                  ;; and only report them to avoid infinite recursion.
@@ -247,10 +244,11 @@ object."))
 
 (define-pycallable __xor__ (object-1 object-2))
 
-(defgeneric pytype-function-attributes (class)
+(defgeneric pytype-attributes (class)
+  (:method-combination append)
   (:documentation
-   "Returns a list of alternating slot keywords and callables that describe the
-function attributes of the Python type corresponding to the supplied class."))
+   "Returns a list of alternating slot keywords and pointers that describe the
+attributes of the Python type corresponding to the supplied class."))
 
 ;;; Conversion
 

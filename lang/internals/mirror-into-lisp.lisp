@@ -110,16 +110,18 @@ finalizer for it, and register it in the mirror-into-lisp table."
               do (setf (aref argv (+ 1 nargs index))
                        (argument-pyobject argument)))
         ;; Perform the actual call and mirror the result into Lisp.
-        (move-into-lisp
-         (prog1 (pyobject-vectorcall
-                 pycallable
-                 (cffi:mem-aptr (sb-sys:vector-sap argv) :pointer 1)
-                 (+ nargs nkwargs +python-vectorcall-arguments-offset+)
-                 kwnames)
-           ;; Ensure that arguments aren't collected before this point.
-           (touch args)
-           (unless (cffi:null-pointer-p kwnames)
-             (pyobject-decref kwnames))))))))
+        (let ((pyobject (pyobject-vectorcall
+                         pycallable
+                         (cffi:mem-aptr (sb-sys:vector-sap argv) :pointer 1)
+                         (+ nargs nkwargs +python-vectorcall-arguments-offset+)
+                         kwnames)))
+          ;; Ensure that arguments aren't collected before this point.
+          (touch args)
+          ;; Release the Python list of keywords.
+          (unless (cffi:null-pointer-p kwnames)
+            (pyobject-decref kwnames))
+          ;; Mirror the result into Lisp.
+          (move-into-lisp pyobject))))))
 
 (defmacro with-pyobjects (bindings &body body)
   "Bind each variable to a borrowed reference to the PyObject corresponding to each
@@ -194,10 +196,6 @@ triggering the start of the keyword argument portion."
     :initargs (:package)
     :initform (error "No package provided."))))
 
-;; Treat null pointers as python:none.
-(setf (gethash 0 *mirror-into-lisp-table*)
-      (find-class 'python:none))
-
 (defun make-mirror-object (reference-type pyobject)
   (with-global-interpreter-lock-held
     ;; Acquire a strong reference that is released by the finalizer of the
@@ -248,14 +246,16 @@ triggering the start of the keyword argument portion."
 
 (defun pytype-class-name (pytype)
   (with-global-interpreter-lock-held
-    (let* ((pyname (ignore-errors (pytype-name pytype))))
-      (intern
-       (if (or (null pyname)
-               (cffi:null-pointer-p pyname))
-           (format nil "UNNAMED-PYTHON-TYPE-~X" (random most-positive-fixnum))
-           (lisp-style-name (string-from-pyobject pyname)))
-       (pymodule-package
-        (pyobject-getattr-string pytype "__module__"))))))
+    (let* ((pyname (ignore-errors (pytype-name pytype)))
+           (name (if (or (null pyname)
+                         (cffi:null-pointer-p pyname))
+                     (format nil "UNNAMED-PYTHON-TYPE-~X" (random most-positive-fixnum))
+                     (lisp-style-name (string-from-pyobject pyname))))
+           (package
+             (let* ((pymodule-name (pyobject-getattr-string pytype "__module__"))
+                    (pymodule (pyimport-import pymodule-name)))
+               (pymodule-package pymodule))))
+      (intern name package))))
 
 (defun pymodule-package (pymodule)
   (declare (pyobject pymodule))
@@ -270,7 +270,8 @@ triggering the start of the keyword argument portion."
             (string-upcase
              (with-global-interpreter-lock-held
                (or (pymodule-name pymodule)
-                   (string-from-pyobject (pyobject-str pymodule)))))))
+                   (string-from-pyobject
+                    (pyobject-str pymodule)))))))
           (module-package module)))))
 
 (defun pytype-direct-superclasses (pyobject)

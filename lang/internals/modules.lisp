@@ -131,6 +131,15 @@ functions (including getattr)."
 (defparameter *ast-module*
   (find-module "ast"))
 
+(defparameter *sys-module*
+  (find-module "sys"))
+
+(setf (getattr *sys-module* (python-string-from-lisp-string "stdout"))
+      *standard-output*)
+
+(setf (getattr *sys-module* (python-string-from-lisp-string "stderr"))
+      *error-output*)
+
 ;;; ... and now for the magic command that sets up all the rest.
 
 (package-from-module "LANG.PYTHON.BUILTINS" "builtins")
