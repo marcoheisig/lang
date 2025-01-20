@@ -121,13 +121,11 @@
                       (not (special-operator-p s))
                       (functionp (symbol-function s)))
              (setf (python:getattr fmodule python-name)
-                   (positional-argument
-                    (symbol-function s))))
+                   (symbol-function s)))
            ;; TODO bind to a property, not the value.
            (when (and (boundp s))
              (setf (python:getattr vmodule python-name)
-                   (positional-argument
-                    (symbol-value s))))))
+                   (symbol-value s)))))
        ;; Copy definitions from fmodule and vmodule to the actual module.
 
        ;; Create the m.functions and m.variables alias unless those symbols

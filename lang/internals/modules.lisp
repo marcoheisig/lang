@@ -122,22 +122,33 @@ functions (including getattr)."
           :initial-value object
           :key #'pythonize-string))
 
-(defparameter *main-module*
-  (find-module "__main__"))
-
-(defparameter *globals*
-  (dot (find-module "__main__") "__dict__"))
-
-(defparameter *ast-module*
+(defparameter *ast*
   (find-module "ast"))
 
-(defparameter *sys-module*
+(defparameter *builtins*
+  (find-module "builtins"))
+
+(defparameter *inspect*
+  (find-module "inspect"))
+
+(defparameter *main*
+  (find-module "__main__"))
+
+(defparameter *sys*
   (find-module "sys"))
 
-(setf (getattr *sys-module* (python-string-from-lisp-string "stdout"))
+(defparameter *typing*
+  (find-module "typing"))
+
+(defparameter *globals*
+  (getattr *main* (python-string-from-lisp-string "__dict__")))
+
+;;; Redirect all IO to Lisp.
+
+(setf (getattr *sys* (python-string-from-lisp-string "stdout"))
       *standard-output*)
 
-(setf (getattr *sys-module* (python-string-from-lisp-string "stderr"))
+(setf (getattr *sys* (python-string-from-lisp-string "stderr"))
       *error-output*)
 
 ;;; ... and now for the magic command that sets up all the rest.

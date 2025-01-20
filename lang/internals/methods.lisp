@@ -2,22 +2,14 @@
 
 ;;; Conversion to Lisp
 
+(defmethod lispify-number ((python-integer python:int))
+  (lisp-integer-from-python-integer python-integer))
+
 (defmethod lispify-number ((python-float python:float))
   (lisp-float-from-python-float python-float))
 
-(defun lisp-float-from-python-float (python-float)
-  (declare (python:float python-float))
-  (with-pyobjects ((pyfloat python-float))
-    (pyfloat-as-double pyfloat)))
-
 (defmethod lispify-number ((python-complex python:complex))
   (lisp-complex-from-python-complex python-complex))
-
-(defun lisp-complex-from-python-complex (python-complex)
-  (declare (python:complex python-complex))
-  (with-pyobjects ((pycomplex python-complex))
-    (complex (pycomplex-real-as-double pycomplex)
-             (pycomplex-imag-as-double pycomplex))))
 
 (defmethod lispify-number ((python-object python:object))
   (with-pyobjects ((pyobject python-object))
@@ -28,28 +20,28 @@
           (t
            (call-next-method)))))
 
+(defmethod lispify-string ((string string))
+  string)
+
+(defmethod lispify-string ((python-string python:str))
+  (lisp-string-from-python-string python-string))
+
 ;;; Conversion to Python
+
+(defmethod pythonize-number ((integer integer))
+  (python-integer-from-lisp-integer integer))
 
 (defmethod pythonize-number ((float float))
   (python-float-from-lisp-float float))
 
-(defun python-float-from-lisp-float (lisp-float)
-  (declare (float lisp-float))
-  (with-global-interpreter-lock-held
-    (move-into-lisp
-     (pyfloat-from-double
-      (coerce lisp-float 'double-float)))))
-
 (defmethod pythonize-number ((complex complex))
   (python-complex-from-lisp-complex complex))
 
-(defun python-complex-from-lisp-complex (lisp-complex)
-  (declare (complex lisp-complex))
-  (with-global-interpreter-lock-held
-    (move-into-lisp
-     (pycomplex-from-doubles
-      (coerce (realpart lisp-complex) 'double-float)
-      (coerce (imagpart lisp-complex) 'double-float)))))
+(defmethod pythonize-string ((string string))
+  (python-string-from-lisp-string string))
+
+(defmethod pythonize-string ((string python:str))
+  string)
 
 ;;; Methods of Callback Functions
 
@@ -491,7 +483,16 @@
 
 (defmethod print-object ((exception python-exception) stream)
   (with-global-interpreter-lock-held
-    (with-place-rebound ((getattr *sys-module* (python-string-from-lisp-string "stderr"))
+    (with-place-rebound ((getattr *sys* (python-string-from-lisp-string "stderr"))
                          stream)
       (pyerr-display-exception
        (python-object-pyobject exception)))))
+
+(defmethod documentation ((python-object python-object) (doc-type (eql 't)))
+  (let ((doc (getattr python-object (python-string-from-lisp-string "__doc__"))))
+    (cond ((typep doc 'python:str)
+           (lisp-string-from-python-string doc))
+          ((eql doc python:none)
+           nil)
+          (t
+           (princ-to-string doc)))))

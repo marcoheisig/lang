@@ -20,7 +20,6 @@
    (:file "generic-functions")
    (:file "mirror-into-lisp")
    (:file "mirror-into-python")
-   (:file "early-methods")
    (:file "modules")
    (:file "methods")
    (:file "python")

@@ -35,13 +35,27 @@ at any time if necessary.")
 finalizer for it, and register it in the mirror-into-lisp table."
   (set-funcallable-instance-function
    python-object
-   (lambda (&rest args)
-     (pyapply pyobject args)))
+   (create-funcallable-instance-function pyobject))
   (alexandria:ensure-gethash
    (pyobject-address pyobject)
    *mirror-into-lisp-table*
    (prog1 python-object
      (register-python-object-finalizer pyobject python-object))))
+
+(defun create-funcallable-instance-function (pycallable)
+  #+(or)
+  (multiple-value-bind (posonlyargs)
+      (lambda (pycallable)
+        (lambda (,@posonlyargs ,@args-sans-defaults &rest ,rest)
+          (pyapply pycallable ,@posonlyargs ,@args-sans-defaults ,rest))))
+  (lambda (&rest args)
+    (pyapply pycallable args)))
+
+(defun pycallable-lambda-list (pycallable)
+  ;; Option 1: Use the inspect module.
+  ;; Option 2: Use typeshed_client.
+  ;; Option 3: Use (&rest rest) as a reasonable default.
+  '(&rest rest))
 
 (defmethod shared-initialize :after
     ((python-exception python-exception)
@@ -65,24 +79,44 @@ finalizer for it, and register it in the mirror-into-lisp table."
                    (pyobject-decref pyrepr))))
        (pyobject-decref pyobject)))))
 
+(defstruct (kwarg
+            (:constructor kwarg (key value &aux (key (pythonize-string key))))
+            (:copier nil)
+            (:predicate kwargp))
+  (key (alexandria:required-argument :key)
+   :type python-object
+   :read-only t)
+  (value (alexandria:required-argument :value)
+   :type t
+   :read-only t))
+
+(defmethod print-object ((kwarg kwarg) stream)
+  (format stream (if *print-readably* "#.(kwarg ~S ~S)" "~A=~A")
+          (lisp-string-from-python-string (kwarg-key kwarg))
+          (kwarg-value kwarg)))
+
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
+  ;; Count the number of positional arguments and keyword arguments and
+  ;; determine the cons holding the first keyword argument.
   (multiple-value-bind (nargs nkwargs kwstart)
       (labels ((scan-positional (args nargs)
                  (if (null args)
                      (values nargs 0 '())
-                     (scan-positional (rest args) (1+ nargs))
-                     #+(or) ;; TODO
-                     (if (keywordp (first args))
-                         (scan-keyword args nargs 0 args)
-                         (scan-positional (rest args) (1+ nargs)))))
+                     (let ((arg (first args))
+                           (rest (rest args)))
+                       (if (kwargp arg)
+                           (scan-keyword rest nargs 1 args)
+                           (scan-positional rest (1+ nargs))))))
                (scan-keyword (args nargs nkwargs kwstart)
                  (if (null args)
                      (values nargs nkwargs kwstart)
-                     (let ((rest (rest args)))
-                       (if (null rest)
-                           (error "Odd number of keyword arguments in ~S." args)
-                           (scan-keyword (rest rest) nargs (1+ nkwargs) kwstart))))))
+                     (let ((arg (first args))
+                           (rest (rest args)))
+                       (if (kwargp arg)
+                           (scan-keyword rest nargs (1+ nkwargs) kwstart)
+                           (error "Positional argument following keyword argument: ~A"
+                                  arg))))))
         (scan-positional args 0))
     (with-global-interpreter-lock-held
       (let (;; Stack-allocate a vector of addresses that is large enough to
@@ -94,21 +128,25 @@ finalizer for it, and register it in the mirror-into-lisp table."
             (kwnames (if (zerop nkwargs)
                          (cffi:null-pointer)
                          (pytuple-new nkwargs))))
-        (declare (dynamic-extent argv))
+        (declare (type (simple-array (unsigned-byte 64) (*)) argv)
+                 (type cffi:foreign-pointer kwnames)
+                 (dynamic-extent argv))
         ;; Mirror all positional arguments to Python.
         (loop for index below nargs
               for arg in args
-              do (setf (aref argv (1+ index))
-                       (argument-pyobject arg)))
+              do (setf (aref argv (+ 1 index))
+                       ;; TODO mirror-into-python returns a strong reference,
+                       ;; but we should pass a borrowed reference instead.
+                       (mirror-into-python arg)))
         ;; Mirror all keyword arguments to Python.
         (loop for index below nkwargs
-              for (keyword argument) on kwstart
+              for kwarg in kwstart
               do (setf (pytuple-getitem kwnames index)
-                       (pyobject-from-string
-                        (string-downcase
-                         (symbol-name keyword))))
+                       (python-object-pyobject (kwarg-key kwarg)))
               do (setf (aref argv (+ 1 nargs index))
-                       (argument-pyobject argument)))
+                       ;; TODO mirror-into-python returns a strong reference,
+                       ;; but we should pass a borrowed reference instead.
+                       (mirror-into-python (kwarg-value kwarg))))
         ;; Perform the actual call and mirror the result into Lisp.
         (let ((pyobject (pyobject-vectorcall
                          pycallable
@@ -140,27 +178,54 @@ Example:
                  collect
                  `(pyobject-decref ,pyvar))))))
 
-(defstruct (literal-keyword
-            (:constructor literal-keyword (keyword))
-            (:copier nil)
-            (:predicate literal-keyword-p))
-  "A wrapper for keywords that should be passed to Python as objects instead of
-triggering the start of the keyword argument portion."
-  (keyword (alexandria:required-argument :keyword)
-   :type keyword
-   :read-only t))
+(defun lisp-integer-from-python-integer (python-integer)
+  (declare (python-object python-integer))
+  (with-pyobjects ((pylong python-integer))
+    ;; TODO support bignums
+    (pylong-as-long pylong)))
 
-(defun positional-argument (argument)
-  (if (keywordp argument)
-      (literal-keyword argument)
-      argument))
+(defun lisp-float-from-python-float (python-float)
+  (declare (python-object python-float))
+  (with-pyobjects ((pyfloat python-float))
+    (pyfloat-as-double pyfloat)))
 
-(defun argument-pyobject (argument)
-  (pyobject-address
-   (mirror-into-python
-    (if (literal-keyword-p argument)
-        (literal-keyword-keyword argument)
-        argument))))
+(defun lisp-complex-from-python-complex (python-complex)
+  (declare (python-object python-complex))
+  (with-pyobjects ((pycomplex python-complex))
+    (complex (pycomplex-real-as-double pycomplex)
+             (pycomplex-imag-as-double pycomplex))))
+
+(defun lisp-string-from-python-string (python-string)
+  (declare (python-object python-string))
+  (with-pyobjects ((pyobject python-string))
+    (string-from-pyobject pyobject)))
+
+(defun python-integer-from-lisp-integer (lisp-integer)
+  (declare (integer lisp-integer))
+  (with-global-interpreter-lock-held
+    ;; TODO support bignums
+    (move-into-lisp (pylong-from-long lisp-integer))))
+
+(defun python-float-from-lisp-float (lisp-float)
+  (declare (float lisp-float))
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pyfloat-from-double
+      (coerce lisp-float 'double-float)))))
+
+(defun python-complex-from-lisp-complex (lisp-complex)
+  (declare (complex lisp-complex))
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pycomplex-from-doubles
+      (coerce (realpart lisp-complex) 'double-float)
+      (coerce (imagpart lisp-complex) 'double-float)))))
+
+(defun python-string-from-lisp-string (lisp-string)
+  (declare (string lisp-string))
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pyobject-from-string lisp-string))))
 
 (ensure-class
  'python:type
