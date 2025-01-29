@@ -35,27 +35,48 @@ at any time if necessary.")
 finalizer for it, and register it in the mirror-into-lisp table."
   (set-funcallable-instance-function
    python-object
-   (create-funcallable-instance-function pyobject))
+   (lisp-function-from-pycallable pyobject))
   (alexandria:ensure-gethash
    (pyobject-address pyobject)
    *mirror-into-lisp-table*
    (prog1 python-object
      (register-python-object-finalizer pyobject python-object))))
 
-(defun create-funcallable-instance-function (pycallable)
-  #+(or)
-  (multiple-value-bind (posonlyargs)
-      (lambda (pycallable)
-        (lambda (,@posonlyargs ,@args-sans-defaults &rest ,rest)
-          (pyapply pycallable ,@posonlyargs ,@args-sans-defaults ,rest))))
-  (lambda (&rest args)
-    (pyapply pycallable args)))
+(define-condition unable-to-derive-pycallable-lambda-list (serious-condition)
+  ())
+
+(defvar *pycallable-lambda-list-derivers* '()
+  "A list of function designators that are called one after the other on a pycallable to derive a
+suitable lambda list.  Each function may throw :failure to transfer control to
+the next one.")
 
 (defun pycallable-lambda-list (pycallable)
-  ;; Option 1: Use the inspect module.
-  ;; Option 2: Use typeshed_client.
-  ;; Option 3: Use (&rest rest) as a reasonable default.
-  '(&rest rest))
+  "Returns a lambda list for the pycallable that consists purely of required
+arguments and possibly a rest argument."
+  (the (values list &optional)
+       (loop for fn in *pycallable-lambda-list-derivers* do
+         (handler-case (return (funcall fn pycallable))
+           (unable-to-derive-pycallable-lambda-list () ()))
+             finally (return '(&rest rest)))))
+
+;; We'll later redefine lisp-function-from-pycallable to generate more detailed
+;; lambda lists, so we declare it as notinline.
+(declaim (notinline lisp-function-from-pycallable))
+(defun lisp-function-from-pycallable (pycallable)
+  (let* ((lambda-list (pycallable-lambda-list pycallable))
+         (restp (position '&rest lambda-list)))
+    (funcall
+     (compile
+      nil
+      `(lambda (pycallable)
+         (lambda ,lambda-list
+           (let ((args ,(if (not restp)
+                            `(list ,@lambda-list)
+                            `(list* ,@(subseq lambda-list 0 restp)
+                                    ,(elt lambda-list (1+ restp))))))
+             (declare (dynamic-extent args))
+             (pyapply pycallable args)))))
+     pycallable)))
 
 (defmethod shared-initialize :after
     ((python-exception python-exception)
@@ -97,6 +118,7 @@ finalizer for it, and register it in the mirror-into-lisp table."
 
 (defun pyapply (pycallable args)
   (declare (pyobject pycallable))
+  (declare (dynamic-extent args))
   ;; Count the number of positional arguments and keyword arguments and
   ;; determine the cons holding the first keyword argument.
   (multiple-value-bind (nargs nkwargs kwstart)
@@ -118,6 +140,8 @@ finalizer for it, and register it in the mirror-into-lisp table."
                            (error "Positional argument following keyword argument: ~A"
                                   arg))))))
         (scan-positional args 0))
+    (declare (unsigned-byte nargs nkwargs)
+             (list kwstart))
     (with-global-interpreter-lock-held
       (let (;; Stack-allocate a vector of addresses that is large enough to
             ;; hold one pointer per argument plus one extra element for
@@ -137,7 +161,8 @@ finalizer for it, and register it in the mirror-into-lisp table."
               do (setf (aref argv (+ 1 index))
                        ;; TODO mirror-into-python returns a strong reference,
                        ;; but we should pass a borrowed reference instead.
-                       (mirror-into-python arg)))
+                       (pyobject-address
+                        (mirror-into-python arg))))
         ;; Mirror all keyword arguments to Python.
         (loop for index below nkwargs
               for kwarg in kwstart
@@ -146,7 +171,9 @@ finalizer for it, and register it in the mirror-into-lisp table."
               do (setf (aref argv (+ 1 nargs index))
                        ;; TODO mirror-into-python returns a strong reference,
                        ;; but we should pass a borrowed reference instead.
-                       (mirror-into-python (kwarg-value kwarg))))
+                       (pyobject-address
+                        (mirror-into-python
+                         (kwarg-value kwarg)))))
         ;; Perform the actual call and mirror the result into Lisp.
         (let ((pyobject (pyobject-vectorcall
                          pycallable
@@ -227,6 +254,16 @@ Example:
     (move-into-lisp
      (pyobject-from-string lisp-string))))
 
+(defun find-module (module-name)
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (etypecase module-name
+       (string
+        (pyimport-import-module module-name))
+       (python-object
+        (with-pyobjects ((pyname module-name))
+          (pyimport-import pyname)))))))
+
 (ensure-class
  'python:type
  :metaclass (find-class 'python-class)
@@ -248,7 +285,8 @@ Example:
 (define-condition python:base-exception (python-exception)
   ())
 
-;; Add a :PACKAGE slot to all mirrored Python modules.
+;; Define the module class and (f)bind python:module.
+
 (ensure-class
  'python:module
  :metaclass (find-class 'python:type)
@@ -256,10 +294,36 @@ Example:
  :pyobject *module-pyobject*
  :direct-slots
  `((:name %package
-    :initfunction ,(lambda () (error "No package provided"))
+    :initfunction ,(lambda () #1=(error "No package provided"))
     :readers (module-package)
     :initargs (:package)
-    :initform (error "No package provided."))))
+    :initform #1#)
+   (:name %symbol-table
+    :initfunction ,(lambda () #2=(error "No symbol table provided"))
+    :readers (module-symbol-table)
+    :initargs (:symbol-table)
+    :initform #2#)))
+
+(setf (symbol-function 'python:module)
+      (find-class 'python:module))
+
+(defparameter python:module
+  (find-class 'python:module))
+
+;; For reasons I haven't fully understood yet, these modules have to be
+;; imported once before doing anything else, or they won't be mirrored as a
+;; module but as builting_function_or_method.  It probably has something to do
+;; with some CPython hack to improve startup times.
+(defparameter *weird-modules*
+  (with-global-interpreter-lock-held
+    (list (pyimport-import-module "ast")
+          (pyimport-import-module "collections.abc"))))
+
+(defparameter *modules-dict-pyobject*
+  (with-global-interpreter-lock-held
+    (pyobject-getattr-string
+     (pyimport-import-module "sys")
+     "modules")))
 
 (defun make-mirror-object (reference-type pyobject)
   (with-global-interpreter-lock-held
@@ -269,75 +333,87 @@ Example:
       (:strong-reference)
       (:borrowed-reference
        (pyobject-incref pyobject)))
+    ;; Determine the object's Python type and Lisp class.
     (let* ((pytype (pyobject-type pyobject))
            (class (if (pyobject-eq pytype pyobject)
                       (error "Encountered an object that is its own type.")
                       (move-into-lisp pytype))))
       (cond
-        ;; Types
-        ((pytype-subtypep pytype *type-pyobject*)
-         (let ((class-name (pytype-class-name pyobject))
-               (direct-superclasses (pytype-direct-superclasses pyobject)))
-           ;; Create either a condition or a regular Python type.
-           (if (or (eql class-name 'python:base-exception)
-                   (every (lambda (class)
-                            (subtypep (class-name class) 'python-exception))
-                          direct-superclasses))
-               (or (find-class class-name nil)
-                   (find-class
-                    (eval `(define-condition ,class-name
-                               ,(mapcar #'class-name direct-superclasses)
-                             ()))))
-               (ensure-class
-                class-name
-                :metaclass class
-                :direct-superclasses direct-superclasses
-                :pyobject pyobject))))
         ;; Modules
-        ((pytype-subtypep pytype *module-pyobject*)
-         (make-instance class
-           :pyobject pyobject
-           :package
-           (pymodule-package pyobject)))
+        ((or (cffi:pointer-eq pytype *module-pyobject*)
+             (pyobject-typep pyobject *module-pyobject*))
+         (multiple-value-bind (package symbol-table)
+             (pymodule-package-and-symbol-table pyobject)
+           (make-instance class
+             :pyobject pyobject
+             :package package
+             :symbol-table symbol-table)))
+        ;; Types
+        ((pyobject-typep pyobject *type-pyobject*)
+         (let* ((pymodule-name (pyobject-getattr-string pyobject "__module__"))
+                (pymodule
+                  (progn
+                    (pyimport-import pymodule-name)
+                    (pydict-getitem *modules-dict-pyobject* pymodule-name))))
+           (multiple-value-bind (package symbol-table)
+               (pymodule-package-and-symbol-table pymodule)
+             (let* ((pyname (pytype-name pyobject))
+                    (python-name (string-from-pyobject pyname))
+                    (lisp-name (or (bijection-value symbol-table python-name)
+                                   ;; TODO gensym?
+                                   (intern (lisp-style-name python-name)
+                                           package)))
+                    (direct-superclasses (pytype-direct-superclasses pyobject)))
+               (if (or (eql lisp-name 'python:base-exception)
+                       (some
+                        (lambda (superclass)
+                          (subtypep (class-name superclass) 'python-exception))
+                        direct-superclasses))
+                   ;; Find or create a condition.
+                   (or (find-class lisp-name nil)
+                       (find-class
+                        (eval `(define-condition ,lisp-name
+                                   ,(mapcar #'class-name direct-superclasses)
+                                 ()))))
+                   ;; Find or create a class.
+                   (if (find-class lisp-name nil)
+                       (error "Attempt to overwrite the mirror class ~S." lisp-name)
+                       (ensure-class
+                        lisp-name
+                        :metaclass class
+                        :direct-superclasses direct-superclasses
+                        :pyobject pyobject)))))))
         ;; Instances
         (t
          (make-instance class
            :pyobject pyobject))))))
 
-(defun ensure-package (name)
-  (declare (string name))
-  (or (find-package name)
-      (make-package name)))
-
-(defun pytype-class-name (pytype)
-  (with-global-interpreter-lock-held
-    (let* ((pyname (ignore-errors (pytype-name pytype)))
-           (name (if (or (null pyname)
-                         (cffi:null-pointer-p pyname))
-                     (format nil "UNNAMED-PYTHON-TYPE-~X" (random most-positive-fixnum))
-                     (lisp-style-name (string-from-pyobject pyname))))
-           (package
-             (let* ((pymodule-name (pyobject-getattr-string pytype "__module__"))
-                    (pymodule (pyimport-import pymodule-name)))
-               (pymodule-package pymodule))))
-      (intern name package))))
-
-(defun pymodule-package (pymodule)
+(defun pymodule-package-and-symbol-table (pymodule)
   (declare (pyobject pymodule))
-  (let ((address (cffi:pointer-address pymodule)))
-    (multiple-value-bind (module presentp)
-        (gethash address *mirror-into-lisp-table*)
-      (if (not presentp)
-          (ensure-package
-           (concatenate
-            'string
-            "LANG.PYTHON."
-            (string-upcase
-             (with-global-interpreter-lock-held
-               (or (pymodule-name pymodule)
-                   (string-from-pyobject
-                    (pyobject-str pymodule)))))))
-          (module-package module)))))
+  ;; If the pymodule already has a corresponding mirror object, return the
+  ;; package of that mirror object.
+  (multiple-value-bind (module presentp)
+      (gethash (cffi:pointer-address pymodule) *mirror-into-lisp-table*)
+    (when presentp
+      (return-from pymodule-package-and-symbol-table
+        (values
+         (module-package module)
+         (module-symbol-table module)))))
+  ;; If there is no mirror object yet, create or lookup the right package and
+  ;; populate it with symbols.
+  (with-global-interpreter-lock-held
+    (let* ((dict (pymodule-dict pymodule))
+           (keys (pydict-keys dict))
+           (size (pydict-size dict)))
+      (python-to-lisp-naming
+       ;; Determine the module name.
+       (or (pymodule-name pymodule)
+           (format nil "unnamed-module-~X" (random most-positive-fixnum)))
+       ;; Determine the module contents.
+       (loop for index below size
+             collect
+             (string-from-pyobject
+              (pylist-getitem keys index)))))))
 
 (defun pytype-direct-superclasses (pyobject)
   (declare (cffi:foreign-pointer pyobject))
@@ -348,26 +424,3 @@ Example:
             (mirror-into-lisp
              (pytuple-getitem bases position))))))
 
-;;; Define mirror objects for all of Python's built-in types.
-
-(macrolet ((def (name var)
-             `(defparameter ,name (mirror-into-lisp ,var))))
-  (def python:bool *bool-pyobject*)
-  (def python:bytearray *bytearray-pyobject*)
-  (def python:bytes *bytes-pyobject*)
-  (def python:builtin-function-or-method *pycfunction-pyobject*)
-  (def python:complex *complex-pyobject*)
-  (def python:dict *dict-pyobject*)
-  (def python:float *float-pyobject*)
-  (def python:frozenset *frozenset-pyobject*)
-  (def python:int *long-pyobject*)
-  (def python:list *list-pyobject*)
-  (def python:module *module-pyobject*)
-  (def python:none *none-pyobject*)
-  (def python:object *object-pyobject*)
-  (def python:range *range-pyobject*)
-  (def python:set *set-pyobject*)
-  (def python:slice *slice-pyobject*)
-  (def python:str *unicode-pyobject*)
-  (def python:tuple *tuple-pyobject*)
-  (def python:type *type-pyobject*))

@@ -18,6 +18,15 @@ object.")
     (touch python-object)
     pyobject))
 
+(defmethod mirror-into-python :around ((python-exception python-exception))
+  (let ((pyobject (python-object-pyobject python-exception)))
+    (with-global-interpreter-lock-held
+      (pyobject-incref pyobject))
+    ;; Prevent the mirror object from being cleaned up before the PyObject
+    ;; refcount has been incremented.
+    (touch python-exception)
+    pyobject))
+
 (defmethod mirror-into-python :around ((object t))
   (multiple-value-bind (pyobject presentp)
       (gethash object *mirror-into-python-table*)
@@ -102,9 +111,6 @@ object.")
          (otherwise
           (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5) (arg 6)
                  (loop for index from 7 below nargs collect (arg index)))))))))
-
-(defmethod pythonize-name ((string string))
-  (string-downcase string))
 
 (defclass lisp-object ()
   ()

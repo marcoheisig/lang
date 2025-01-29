@@ -408,8 +408,11 @@
 (cffi:defcfun ("PyModule_GetFilenameObject" pymodule-pyfilename) pyobject
   (pymodule pyobject))
 
-(cffi:defcfun ("PyImport_Import" pyimport-import) pyobject
+(cffi:defcfun ("PyImport_ImportModule" pyimport-import-module) pyobject
   (name :string))
+
+(cffi:defcfun ("PyImport_Import" pyimport-import) pyobject
+  (pyname pyobject))
 
 ;;; PyNone
 

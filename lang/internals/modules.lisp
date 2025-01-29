@@ -1,5 +1,50 @@
 (in-package #:lang.internals)
 
+(defmethod shared-initialize :after ((module python:module) slot-names &key &allow-other-keys)
+  "Populate the package corresponding to each Python module."
+  (with-pyobjects ((pymodule module)
+                   ;; Fancy trick to later decrement the refcount:
+                   (pydict (move-into-lisp (pymodule-dict pymodule))))
+    (maphash
+     (lambda (python-name lisp-name)
+       (let* ((pykey (pyobject-from-string python-name))
+              (value (move-into-lisp (pydict-getitem pydict pykey))))
+         ;; TODO use symbol-macros instead of special variables.
+         (proclaim `(special ,lisp-name))
+         (setf (symbol-value lisp-name)
+               value)
+         (when (functionp value)
+           (setf (symbol-function lisp-name)
+                 value))))
+     (bijection-a2b (module-symbol-table module)))))
+
+;;; Import the most important Python modules.
+
+(defparameter *builtins*
+  (find-module "builtins"))
+
+(defparameter *sys*
+  (find-module "sys"))
+
+(defparameter *ast*
+  (find-module "ast"))
+
+(defparameter *os*
+  (find-module "os"))
+
+(defparameter *main*
+  (find-module "__main__"))
+
+;;; Redirect all IO to Lisp.
+
+(with-pyobjects ((pysys *sys*)
+                 (pystream *standard-output*))
+  (pyobject-setattr-string pysys "stdout" pystream))
+
+(with-pyobjects ((pysys *sys*)
+                 (pystream *error-output*))
+  (pyobject-setattr-string pysys "stderr" pystream))
+
 (defclass descriptor ()
   ())
 
@@ -30,127 +75,11 @@
      (value null))
   (makunbound (symbol-value-descriptor-symbol descriptor)))
 
-(defun module-from-package (package)
-  (let* ((module-name (format nil "lang.lisp.~A" (python-style-name (package-name package))))
-         (module (funcall python:module (python-string-from-lisp-string module-name))))
-    (with-pyobjects ((pymodule module))
-      (loop for symbol being the external-symbols of package do
-        (when (boundp symbol)
-          (cffi:with-foreign-string (nameptr (python-style-name symbol))
-            (pyobject-setattr-string
-             pymodule
-             nameptr
-             (mirror-into-python
-              (make-instance 'symbol-value-descriptor :symbol symbol)))))))
-    module))
-
-(defun package-from-module (package-name module-name)
-  (declare (string package-name module-name))
-  (let* ((package (or (find-package package-name)
-                      (make-package package-name)))
-         (module (find-module module-name))
-         (symbol-table (make-hash-table :test #'eq)))
-    ;; Populate the symbol table with mappings from Lisp symbols to Python
-    ;; identifiers.  Normally, two Lisp symbols are associated with each Python
-    ;; identifier - one using the literal spelling, and one using a more Lisp-y
-    ;; translation.  The exception is when two or more Lisp-y translations
-    ;; collide, in which case these Python identifiers are only associated with
-    ;; their literal spelling.
-    (with-pyobjects ((pymodule module)
-                     (pylist (move-into-lisp (pyobject-dir pymodule))))
-      (let ((size (pylist-size pylist)))
-        (dotimes (position size)
-          (let* ((python-string
-                   ;; pylist-getitem returns a borrowed reference.
-                   (let ((pystr (pylist-getitem pylist position)))
-                     (mirror-into-lisp pystr)))
-                 (python-name
-                   (with-pyobjects ((pystring python-string))
-                     (string-from-pyobject pystring)))
-                 (python-symbol (intern python-name package))
-                 (lisp-name (lisp-style-name python-name))
-                 (lisp-symbol (intern lisp-name package)))
-            (export (list python-symbol lisp-symbol) package)
-            (setf (gethash python-symbol symbol-table)
-                  python-string)
-            (if (nth-value 1 (gethash lisp-symbol symbol-table))
-                ;; Collision of two lisp names.
-                (setf (gethash lisp-symbol symbol-table)
-                      '.collision.)
-                ;; No collision.
-                (setf (gethash lisp-symbol symbol-table)
-                      python-string))))))
-    ;; Now traverse the symbol table and associate each symbol with their
-    ;; values in that module.
-    (maphash
-     (lambda (symbol python-string)
-       (unless (eq python-string '.collision.)
-         (let ((value (getattr module python-string)))
-           (proclaim `(special ,symbol))
-           (setf (symbol-value symbol)
-                 value)
-           ;; TODO proper lambda lists.
-           (setf (symbol-function symbol)
-                 (lambda (&rest args)
-                   (apply value args))))))
-     symbol-table)
-    ;; Done.
-    package))
-
-(defun find-module (module-name)
-  (with-global-interpreter-lock-held
-    (with-pyobjects ((pystring (move-into-lisp (pyobject-from-string module-name))))
-      (move-into-lisp (pyimport-import pystring)))))
-
-(defun getattr (python-object python-string)
-  "An implementation of getattr that we use to load all built-in Python
-functions (including getattr)."
-  (with-pyobjects ((pyobject python-object)
-                   (pystring python-string))
-    (move-into-lisp
-     (pyobject-getattr pyobject pystring))))
-
-(defun (setf getattr) (python-value python-object python-string)
-  (with-pyobjects ((pyvalue python-value)
-                   (pyobject python-object)
-                   (pystring python-string))
-    (pyobject-setattr pyobject pystring pyvalue)
-    python-value))
-
-(defun dot (object &rest strings)
-  (reduce #'getattr strings
-          :initial-value object
-          :key #'pythonize-string))
-
-(defparameter *ast*
-  (find-module "ast"))
-
-(defparameter *builtins*
-  (find-module "builtins"))
-
-(defparameter *inspect*
-  (find-module "inspect"))
-
-(defparameter *main*
-  (find-module "__main__"))
-
-(defparameter *sys*
-  (find-module "sys"))
-
-(defparameter *typing*
-  (find-module "typing"))
-
-(defparameter *globals*
-  (getattr *main* (python-string-from-lisp-string "__dict__")))
-
-;;; Redirect all IO to Lisp.
-
-(setf (getattr *sys* (python-string-from-lisp-string "stdout"))
-      *standard-output*)
-
-(setf (getattr *sys* (python-string-from-lisp-string "stderr"))
-      *error-output*)
-
-;;; ... and now for the magic command that sets up all the rest.
-
-(package-from-module "LANG.PYTHON.BUILTINS" "builtins")
+;;; Ensure that LD_LIBRARY_PATH points to the location of the currently loaded
+;;; libpython.
+#+(or)
+(setf (getitem (getattr *os* "environ") "LD_LIBRARY_PATH")
+      (python-string-from-lisp-string
+       (directory-namestring
+        (cffi:foreign-library-pathname
+         (cffi::get-foreign-library 'libpython)))))

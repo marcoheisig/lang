@@ -1,5 +1,35 @@
 (in-package #:lang.internals)
 
+;;; Mapping names from Python to Lisp and vice versa has to take the following
+;;; rules into account:
+;;;
+;;; - Python only has one namespace per module, but the value corresponding to
+;;;   each name can be a type, a function, and a value at the same time.
+;;;
+;;; - Lisp has separate namespaces for functions, variables, and types.
+;;;
+;;; - A Python name must obey certain rules (no hyphens, doesn't start with a
+;;;   digit), and should follow certain conventions (capitalized class names,
+;;;   lowercase function names).
+;;;
+;;; - A Lisp name can be an arbitrary sequence of characters, but typically it
+;;;   consists only of uppercase characters and hyphens.
+;;;
+;;; We solve the problem of mapping multiple namespaces into a single Python
+;;; module by giving each module three sub-modules named f, v, and t, holding
+;;; the functions, variables, and types, respectively.
+;;;
+;;; We solve the problems of collisions within one Python or Lisp namespace by
+;;; appending an increasing counter to each subsequent entry that would
+;;; otherwise have the same name.
+;;;
+;;; Both Python modules and Lisp pacakges can be modified at runtime, but we
+;;; disregard this possibility when creating symbol tables because it is
+;;; considered bad practice anyway.  Also, incremental changes would result in
+;;; names that depend on the order of those changes, which is undesirable.  For
+;;; those reasons, all symbol tables are immutable and represent the state of a
+;;; package or symbol at a particular point in time.
+
 (defparameter *python-style-suffix-substitutions*
   '(("1+" . "inc")
     ("1-" . "dec")
@@ -172,3 +202,111 @@ underscore-delimited substrings and remove all the underscores."
           (convert position suffix))
         (copy-verbatim suffix (length string))
         (when earmuffs (write-sequence earmuffs stream))))))
+
+(defstruct (bijection
+            (:constructor %make-bijection (a2b b2a))
+            (:predicate bijectionp)
+            (:copier nil))
+  "A bijection describes a pairs of objects of some sets A and B, and
+features efficient lookup of the B object corresponding to a supplied A object
+or the A object corresponding to supplied B object."
+  (a2b nil
+   :type hash-table
+   :read-only t)
+  (b2a nil
+   :type hash-table
+   :read-only t))
+
+(defun make-bijection (&key (domain-equality 'eql) (codomain-equality 'eql))
+  (%make-bijection
+   (make-hash-table :test domain-equality)
+   (make-hash-table :test codomain-equality)))
+
+(defun bijection-value (bijection key)
+  (declare (bijection bijection))
+  (gethash key (bijection-a2b bijection)))
+
+(defun bijection-key (bijection value)
+  (declare (bijection bijection))
+  (gethash value (bijection-b2a bijection)))
+
+(defun bijection-add (bijection a b-generator)
+  (let ((a2b (bijection-a2b bijection))
+        (b2a (bijection-b2a bijection)))
+    ;; Ensure that there is no collision in A.
+    (when (nth-value 1 (gethash a a2b))
+      (error "The key ~A exists already."
+             a))
+    ;; Ensure that there is no collision in B.
+    (loop for b = (funcall b-generator) do
+      (unless (nth-value 1 (gethash b b2a))
+        ;; Add a new entry.
+        (setf (gethash a (bijection-a2b bijection)) b)
+        (setf (gethash b (bijection-b2a bijection)) a)
+        (loop-finish)))))
+
+(defun sequential-generator (fn)
+  (let ((n -1))
+    (lambda ()
+      (incf n)
+      (funcall fn n))))
+
+(defun lisp-name-generator (python-name package)
+  (let ((lisp-name (lisp-style-name python-name)))
+    (sequential-generator
+     (lambda (n)
+       (intern
+        (if (zerop n)
+            lisp-name
+            (format nil "~A-~D" lisp-name n))
+        package)))))
+
+(defun python-name-generator (lisp-name)
+  (let ((python-name (python-style-name lisp-name)))
+    (sequential-generator
+     (lambda (n)
+       (if (zerop n)
+           python-name
+           (format nil "~A_~D" python-name n))))))
+
+(defun python-class-name-generator (lisp-name)
+  (let ((python-name (python-style-class-name lisp-name)))
+    (sequential-generator
+     (lambda (n)
+       (if (zerop n)
+           python-name
+           (format nil "~A_~D" python-name n))))))
+
+(defun ensure-package (name)
+  (declare (string name))
+  (or (find-package name)
+      (make-package name)))
+
+(defun python-to-lisp-naming (module-name module-contents)
+  "Turn a Python module name and list of strings describing the bindings therein
+into a bijection from each such name to the corresponding Lisp symbol."
+  (let ((package (ensure-package (format nil "LANG.PYTHON.~:@(~A~)" module-name)))
+        (bijection (make-bijection :domain-equality 'equal :codomain-equality 'eq)))
+    (mapc
+     (lambda (python-name)
+       (bijection-add bijection python-name (lisp-name-generator python-name package)))
+     (sort module-contents #'string<))
+    (values package bijection)))
+
+(defun lisp-to-python-naming (package)
+  "Turn a Lisp package into three bijections describing the functions, variables,
+and types of the corresponding Python module."
+  (declare (package package))
+  (let ((symbols (loop for symbol being the symbols of package collect symbol))
+        (f-names (make-bijection :domain-equality 'eql :codomain-equality 'equal))
+        (v-names (make-bijection :domain-equality 'eql :codomain-equality 'equal))
+        (t-names (make-bijection :domain-equality 'eql :codomain-equality 'equal)))
+    ;; Populate the collision-table.
+    (loop for symbol in symbols for lisp-name = (symbol-name symbol) do
+      (when (fboundp symbol)
+        (bijection-add f-names symbol (python-name-generator lisp-name)))
+      (when (boundp symbol)
+        (bijection-add v-names symbol (python-name-generator lisp-name)))
+      (when (find-class symbol nil)
+        (bijection-add t-names symbol (python-class-name-generator lisp-name))))
+    (values f-names v-names t-names)))

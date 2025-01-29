@@ -22,6 +22,8 @@
    (:file "mirror-into-python")
    (:file "modules")
    (:file "methods")
+   #+(or)
+   (:file "lambda-lists")
    (:file "python")
    (:file "convert")
    (:file "lispify")

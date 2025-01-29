@@ -189,6 +189,9 @@
   (python:setattr lang.python (pythonize-string "cl")
                   (module-from-package (find-package "CL"))))
 
+(defparameter *globals*
+  (dot *main* "__dict__"))
+
 (defun stmt (string)
   (python:exec
    (pythonize-string string)
