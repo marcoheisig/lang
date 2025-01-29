@@ -190,7 +190,7 @@
                   (module-from-package (find-package "CL"))))
 
 (defparameter *globals*
-  (dot *main* "__dict__"))
+  (getattr *main* "__dict__"))
 
 (defun stmt (string)
   (python:exec

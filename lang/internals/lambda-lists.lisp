@@ -8,7 +8,8 @@
 
 (defparameter *typeshed-client-resolver*
   (handler-case (funcall (getattr (find-module "typeshed_client") "Resolver"))
-    (python:module-not-found-error () nil)))
+    (python:module-not-found-error () nil)
+    (python:attribute-error () nil)))
 
 (defun typeshed-lambda-list-deriver (pycallable)
   ;; Abort if there is no resolver.

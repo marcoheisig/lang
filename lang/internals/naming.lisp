@@ -119,16 +119,17 @@
   "First convert the supplied string to a Python-style name, then capitalize the
 underscore-delimited substrings and remove all the underscores."
   (declare (string string))
-  (with-output-to-string (stream)
-    (let ((end (length string))
-          (pos 0))
-      (loop while (< pos end)
-            for next = (or (position #\_ string :start pos :test #'char=) end)
-            do (cond ((= pos next)
-                      (incf pos))
-                     ((< pos next)
-                      (format stream "~:(~A~)" (subseq string pos next))
-                      (setf pos next)))))))
+  (let ((python-name (python-style-name string)))
+    (with-output-to-string (stream)
+      (let ((end (length python-name))
+            (pos 0))
+        (loop while (< pos end)
+              for next = (or (position #\_ python-name :start pos :test #'char=) end)
+              do (cond ((= pos next)
+                        (incf pos))
+                       ((< pos next)
+                        (format stream "~:(~A~)" (subseq string pos next))
+                        (setf pos next))))))))
 
 (defun lisp-style-name (string &key earmuffs)
   "Applies the following rules:

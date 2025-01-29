@@ -76,7 +76,9 @@ object."))
   (:generic-function-class lispifying-generic-function))
 
 (defgeneric __eq__ (object-1 object-2)
-  (:generic-function-class lispifying-generic-function))
+  (:generic-function-class lispifying-generic-function)
+  (:method ((object-1 t) (object-2 t))
+    (eq object-1 object-2)))
 
 (defgeneric __ne__ (object-1 object-2)
   (:generic-function-class lispifying-generic-function))

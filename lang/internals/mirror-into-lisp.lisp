@@ -317,13 +317,9 @@ Example:
 (defparameter *weird-modules*
   (with-global-interpreter-lock-held
     (list (pyimport-import-module "ast")
-          (pyimport-import-module "collections.abc"))))
-
-(defparameter *modules-dict-pyobject*
-  (with-global-interpreter-lock-held
-    (pyobject-getattr-string
-     (pyimport-import-module "sys")
-     "modules")))
+          (pyimport-import-module "collections.abc")
+          (pyimport-import-module "inspect")
+          (pyimport-import-module "weakref"))))
 
 (defun make-mirror-object (reference-type pyobject)
   (with-global-interpreter-lock-held
@@ -350,43 +346,61 @@ Example:
              :symbol-table symbol-table)))
         ;; Types
         ((pyobject-typep pyobject *type-pyobject*)
-         (let* ((pymodule-name (pyobject-getattr-string pyobject "__module__"))
-                (pymodule
-                  (progn
-                    (pyimport-import pymodule-name)
-                    (pydict-getitem *modules-dict-pyobject* pymodule-name))))
-           (multiple-value-bind (package symbol-table)
-               (pymodule-package-and-symbol-table pymodule)
-             (let* ((pyname (pytype-name pyobject))
-                    (python-name (string-from-pyobject pyname))
-                    (lisp-name (or (bijection-value symbol-table python-name)
-                                   ;; TODO gensym?
-                                   (intern (lisp-style-name python-name)
-                                           package)))
-                    (direct-superclasses (pytype-direct-superclasses pyobject)))
-               (if (or (eql lisp-name 'python:base-exception)
-                       (some
-                        (lambda (superclass)
-                          (subtypep (class-name superclass) 'python-exception))
-                        direct-superclasses))
-                   ;; Find or create a condition.
-                   (or (find-class lisp-name nil)
-                       (find-class
-                        (eval `(define-condition ,lisp-name
-                                   ,(mapcar #'class-name direct-superclasses)
-                                 ()))))
-                   ;; Find or create a class.
-                   (if (find-class lisp-name nil)
-                       (error "Attempt to overwrite the mirror class ~S." lisp-name)
-                       (ensure-class
-                        lisp-name
-                        :metaclass class
-                        :direct-superclasses direct-superclasses
-                        :pyobject pyobject)))))))
+         (let* ((direct-superclasses (pytype-direct-superclasses pyobject))
+                (python-name
+                  (with-pyobjects ((pyname (move-into-lisp (pytype-qualified-name pyobject))))
+                    (string-from-pyobject pyname)))
+                (pymodule (pytype-defining-pymodule pyobject))
+                (lisp-name
+                  (if (null pymodule)
+                      (gensym python-name)
+                      (multiple-value-bind (package symbol-table)
+                          (pymodule-package-and-symbol-table pymodule)
+                        (or (bijection-value symbol-table python-name)
+                            ;; TODO gensym?
+                            (intern (lisp-style-name python-name)
+                                    package))))))
+           (if (or (eql lisp-name 'python:base-exception)
+                   (some
+                    (lambda (superclass)
+                      (subtypep (class-name superclass) 'python-exception))
+                    direct-superclasses))
+               ;; Find or create a condition.
+               (or (find-class lisp-name nil)
+                   (find-class
+                    (eval `(define-condition ,lisp-name
+                               ,(mapcar #'class-name direct-superclasses)
+                             ()))))
+               ;; Find or create a class.
+               (if (find-class lisp-name nil)
+                   (error "Attempt to overwrite the mirror class ~S." lisp-name)
+                   (ensure-class
+                    lisp-name
+                    :metaclass class
+                    :direct-superclasses direct-superclasses
+                    :pyobject pyobject)))))
         ;; Instances
         (t
          (make-instance class
            :pyobject pyobject))))))
+
+(defun pytype-defining-pymodule (pytype)
+  "Returns the PyModule that defines the supplied PyType.  Returns
+NIL if the type has no module or is not a toplevel definition of its module."
+  (with-global-interpreter-lock-held
+    (when (pyobject-hasattr-string pytype "__module__")
+      (with-pyobjects
+          ((pytype-name (move-into-lisp (pyobject-getattr-string pytype "__qualname__")))
+           (pymodule-name (move-into-lisp (pyobject-getattr-string pytype "__module__")))
+           (pymodule (move-into-lisp (pyimport-import pymodule-name)))
+           (pyvalue (move-into-lisp
+                     (if (pyobject-hasattr pymodule pytype-name)
+                         (pyobject-getattr pymodule pytype-name)
+                         (pylong-from-long 0)))))
+        (when (and (pyobject-typep pymodule *module-pyobject*)
+                   (pyobject-hasattr pymodule pytype-name)
+                   (cffi:pointer-eq pytype pyvalue))
+          pymodule)))))
 
 (defun pymodule-package-and-symbol-table (pymodule)
   (declare (pyobject pymodule))
@@ -423,4 +437,3 @@ Example:
             collect
             (mirror-into-lisp
              (pytuple-getitem bases position))))))
-

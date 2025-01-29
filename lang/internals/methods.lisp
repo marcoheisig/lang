@@ -2,58 +2,27 @@
 
 ;;; Auxiliary functions for accessing attributes and items.
 
-(defun python-string (string)
-  (etypecase string
-    (string
-     (python-string-from-lisp-string string))
-    (python-object
-     (with-pyobjects ((pystr string))
-       (unless (pyobject-typep pystr *unicode-pyobject*)
-         (error "Not a Python string: ~A" string))
-       string))))
-
 (defun hasattr (python-object string)
   "An implementation of hasattr that we use to load all built-in Python
 functions (including hasattr)."
   (with-pyobjects ((pyobject python-object)
-                   (pystring (python-string string)))
+                   (pystring (pythonize-string string)))
     (pyobject-hasattr pyobject pystring)))
 
 (defun getattr (python-object string)
   "An implementation of getattr that we use to load all built-in Python
 functions (including getattr)."
   (with-pyobjects ((pyobject python-object)
-                   (pystring (python-string string)))
+                   (pystring (pythonize-string string)))
     (move-into-lisp
      (pyobject-getattr pyobject pystring))))
-
-(defun getitem (python-object python-key)
-  "An implementation of getitem that we use to load all built-in Python
-functions (including getitem)."
-  (with-pyobjects ((pyobject python-object)
-                   (pykey (pythonize python-key)))
-    (move-into-lisp
-     (pyobject-getattr pyobject pykey))))
 
 (defun (setf getattr) (python-value python-object string)
   (with-pyobjects ((pyvalue python-value)
                    (pyobject python-object)
-                   (pystring (python-string string)))
+                   (pystring (pythonize-string string)))
     (pyobject-setattr pyobject pystring pyvalue)
     python-value))
-
-(defun (setf getitem) (python-value python-object python-key)
-  (with-pyobjects ((pyvalue python-value)
-                   (pyobject python-object)
-                   (pykey (pythonize python-key)))
-    (pyobject-setattr pyobject pykey pyvalue)
-    python-value))
-
-(defun dot (object &rest strings)
-  (reduce #'getattr strings
-          :initial-value object
-          :key #'pythonize-string))
-
 
 ;;; Conversion to Lisp
 
