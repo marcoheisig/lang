@@ -9,6 +9,32 @@ Each mirror object must have a finalizer attached that deletes its entry in
 this table so that the garbage collector may eventually clean up the Lisp
 object.")
 
+;;; Condition classes can't be mirrored into Python by creating a new type,
+;;; so we register them with their existing Python exception type instead.
+
+(defun register-condition-class (condition-class pytype)
+  "Make CONDITION-CLASS the Lisp mirror of the Python exception type PYTYPE, and
+vice versa.  Consumes one strong reference to PYTYPE."
+  (multiple-value-bind (registered-pytype presentp)
+      (gethash condition-class *mirror-into-python-table*)
+    (cond ((not presentp)
+           (setf (gethash condition-class *mirror-into-python-table*) pytype)
+           (setf (gethash (pyobject-address pytype) *mirror-into-lisp-table*)
+                 condition-class))
+          ((pyobject-eq registered-pytype pytype)
+           (with-global-interpreter-lock-held
+             (pyobject-decref pytype)))
+          (t
+           (error "Attempt to mirror two Python types as the condition ~S."
+                  (class-name condition-class)))))
+  condition-class)
+
+(with-global-interpreter-lock-held
+  (pyobject-incref *base-exception-pyobject*)
+  (register-condition-class
+   (find-class 'python:base-exception)
+   *base-exception-pyobject*))
+
 (defmethod mirror-into-python :around ((python-object python-object))
   (let ((pyobject (python-object-pyobject python-object)))
     (with-global-interpreter-lock-held
@@ -49,13 +75,15 @@ object.")
 
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
-  (let* ((address (pyobject-address pyobject))
-         (lisp-object (gethash address *mirror-into-lisp-table*)))
-    #+(or)
-    (format *trace-output* "~&(Python) Finalizing ~S.~%"
-            lisp-object)
-    (remhash address *mirror-into-lisp-table*)
-    (remhash lisp-object *mirror-into-python-table*)))
+  (let ((address (pyobject-address pyobject)))
+    (multiple-value-bind (lisp-object presentp)
+        (gethash address *mirror-into-lisp-table*)
+      #+(or)
+      (format *trace-output* "~&(Python) Finalizing ~S.~%"
+              lisp-object)
+      (when presentp
+        (remhash address *mirror-into-lisp-table*)
+        (remhash lisp-object *mirror-into-python-table*)))))
 
 (cffi:defcallback __call__ pyobject
     ((callable pyobject)
@@ -99,10 +127,11 @@ object.")
              (mirror-into-lisp
               (cffi:mem-aref args :pointer index))))
       (mirror-into-python
-       (case nargs
-         (0 (funcall fn (arg 0)))
-         (1 (funcall fn (arg 0) (arg 1)))
-         (2 (funcall fn (arg 0) (arg 1) (arg 2)))
+       ;; NARGS may have the PY_VECTORCALL_ARGUMENTS_OFFSET flag set.
+       (case (logandc2 nargs +python-vectorcall-arguments-offset+)
+         (0 (funcall fn))
+         (1 (funcall fn (arg 0)))
+         (2 (funcall fn (arg 0) (arg 1)))
          (3 (funcall fn (arg 0) (arg 1) (arg 2)))
          (4 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3)))
          (5 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4)))
@@ -110,7 +139,9 @@ object.")
          (7 (funcall fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5) (arg 6)))
          (otherwise
           (apply fn (arg 0) (arg 1) (arg 2) (arg 3) (arg 4) (arg 5) (arg 6)
-                 (loop for index from 7 below nargs collect (arg index)))))))))
+                 (loop for index from 7
+                         below (logandc2 nargs +python-vectorcall-arguments-offset+)
+                       collect (arg index)))))))))
 
 (defclass lisp-object ()
   ()

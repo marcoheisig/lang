@@ -25,7 +25,8 @@
     ((strategy lispify)
      (object python:object))
   "Signals an error when encountering Python objects without a more specific method."
-  (error "Don't know how to convert ~S to a Lisp object."
+  (cerror "Leave as Python object."
+          "Don't know how to convert ~S to a Lisp object."
          object))
 
 (defmethod convert-object
@@ -68,7 +69,8 @@ pointer."
      (lambda ()
        (with-pyobjects ((pylist list))
          (loop for position below (length vector)
-               for value = (move-into-lisp (pylist-getitem pylist position))
+               ;; PyList_GetItem returns a borrowed reference.
+               for value = (mirror-into-lisp (pylist-getitem pylist position))
                do (setf (aref vector position)
                         (convert-object strategy value))))))))
 
@@ -97,15 +99,16 @@ pointer."
     (values
      hash-table
      (lambda ()
-       (with-pyobjects ((pydict dict))
-         (let ((pyiter (pyiter-new (pydict-items pydict))))
-           (assert (pyiterp pyiter))
-           (loop for pynext = (pyiter-next pyiter)
-                 until (cffi:null-pointer-p pynext)
-                 for key = (mirror-into-lisp (pytuple-getitem pynext 0))
-                 for value = (mirror-into-lisp (pytuple-getitem pynext 1))
-                 do (setf (gethash (convert-object strategy key) hash-table)
-                          (convert-object strategy value)))))))))
+       (with-pyobjects ((pydict dict)
+                        ;; PyDict_Items returns a new reference to a list of
+                        ;; (key, value) tuples.
+                        (pyitems (move-into-lisp (pydict-items pydict))))
+         (loop for position below (pylist-size pyitems)
+               for pyitem = (pylist-getitem pyitems position)
+               for key = (mirror-into-lisp (pytuple-getitem pyitem 0))
+               for value = (mirror-into-lisp (pytuple-getitem pyitem 1))
+               do (setf (gethash (convert-object strategy key) hash-table)
+                        (convert-object strategy value))))))))
 
 (defmethod convert-object
     ((strategy lispify)

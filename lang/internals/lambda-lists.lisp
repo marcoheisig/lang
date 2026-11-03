@@ -1,10 +1,16 @@
 (in-package #:lang.internals)
 
+;;; Derive lambda lists using the 'inspect' library.
+
+(defparameter *inspect*
+  (with-global-interpreter-lock-held
+    (move-into-lisp
+     (pyimport-import-module "inspect"))))
+
 (defun inspect-lambda-list-deriver (pycallable)
   (error 'unable-to-derive-pycallable-lambda-list))
 
-(defparameter *inspect*
-  (find-module "inspect"))
+;;; Derive lambda lists using the 'typeshed_client' library.
 
 (defparameter *typeshed-client-resolver*
   (handler-case (funcall (getattr (find-module "typeshed_client") "Resolver"))

@@ -1,28 +1,5 @@
 (in-package #:lang.internals)
 
-;;; Auxiliary functions for accessing attributes and items.
-
-(defun hasattr (python-object string)
-  "An implementation of hasattr that we use to load all built-in Python
-functions (including hasattr)."
-  (with-pyobjects ((pyobject python-object)
-                   (pystring (pythonize-string string)))
-    (pyobject-hasattr pyobject pystring)))
-
-(defun getattr (python-object string)
-  "An implementation of getattr that we use to load all built-in Python
-functions (including getattr)."
-  (with-pyobjects ((pyobject python-object)
-                   (pystring (pythonize-string string)))
-    (move-into-lisp
-     (pyobject-getattr pyobject pystring))))
-
-(defun (setf getattr) (python-value python-object string)
-  (with-pyobjects ((pyvalue python-value)
-                   (pyobject python-object)
-                   (pystring (pythonize-string string)))
-    (pyobject-setattr pyobject pystring pyvalue)
-    python-value))
 
 ;;; Conversion to Lisp
 
@@ -87,7 +64,8 @@ functions (including getattr)."
 
 (defmethod __lt__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :lt)))
+    (move-into-lisp
+     (pyobject-richcompare a b :lt))))
 
 (defmethod __le__ ((a real) (b real))
   (<= a b))
@@ -97,7 +75,8 @@ functions (including getattr)."
 
 (defmethod __le__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :le)))
+    (move-into-lisp
+     (pyobject-richcompare a b :le))))
 
 (defmethod __eq__ ((a number) (b number))
   (= a b))
@@ -107,7 +86,8 @@ functions (including getattr)."
 
 (defmethod __eq__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :eq)))
+    (move-into-lisp
+     (pyobject-richcompare a b :eq))))
 
 (defmethod __ne__ ((a number) (b number))
   (/= a b))
@@ -117,7 +97,8 @@ functions (including getattr)."
 
 (defmethod __ne__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :ne)))
+    (move-into-lisp
+     (pyobject-richcompare a b :ne))))
 
 (defmethod __gt__ ((a real) (b real))
   (> a b))
@@ -127,7 +108,8 @@ functions (including getattr)."
 
 (defmethod __gt__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :gt)))
+    (move-into-lisp
+     (pyobject-richcompare a b :gt))))
 
 (defmethod __ge__ ((a real) (b real))
   (>= a b))
@@ -137,7 +119,8 @@ functions (including getattr)."
 
 (defmethod __ge__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
-    (pyobject-richcompare a b :ge)))
+    (move-into-lisp
+     (pyobject-richcompare a b :ge))))
 
 (defmethod __hash__ ((object t))
   (let* ((hash (sxhash object))
@@ -189,13 +172,13 @@ functions (including getattr)."
 (defmethod __setitem__ ((python-object python-object) (index integer) value)
   (with-pyobjects ((pyobject python-object)
                    (pyvalue value))
-    (pysequence-setitem pyobject index value)))
+    (pysequence-setitem pyobject index pyvalue)))
 
 (defmethod __setitem__ ((python-object python-object) (index string) value)
   (with-pyobjects ((pyobject python-object)
                    (pystr (python-string-from-lisp-string index))
                    (pyvalue value))
-    (pysequence-setitem pyobject pystr pyvalue)))
+    (pyobject-setitem pyobject pystr pyvalue)))
 
 (remove-method
  (function  __setitem__)
@@ -233,8 +216,7 @@ functions (including getattr)."
 (defmethod __contains__ ((python-object python-object) value)
   (with-pyobjects ((pyobject python-object)
                    (pyvalue value))
-    (move-into-lisp
-     (pymapping-has-key pyobject value))))
+    (pysequence-contains pyobject pyvalue)))
 
 (defmethod __abs__ ((number number))
   (abs number))
@@ -287,7 +269,8 @@ functions (including getattr)."
 
 (defmethod __float__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
-    (pynumber-float pyobject)))
+    (move-into-lisp
+     (pynumber-float pyobject))))
 
 (defmethod __floordiv__ ((a real) (b real))
   (floor a b))
@@ -357,16 +340,15 @@ functions (including getattr)."
   )
 
 (defmethod __int__ ((integer integer))
-  (move-into-lisp
-   (pylong-from-long integer)))
+  (python-integer-from-lisp-integer integer))
 
 (defmethod __int__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
      (pynumber-long pyobject))))
 
-(defmethod __invert__ ((number number))
-  (/ number))
+(defmethod __invert__ ((integer integer))
+  (lognot integer))
 
 (defmethod __invert__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
@@ -482,10 +464,9 @@ functions (including getattr)."
      (pynumber-xor pya pyb))))
 
 (defmethod print-object ((python-object python-object) stream)
-  (with-pyobjects ((pyobject python-object))
-    (let ((repr (pyobject-repr pyobject)))
-      (unwind-protect (write-string (string-from-pyobject repr) stream)
-        (pyobject-decref repr)))))
+  (with-pyobjects ((pyobject python-object)
+                   (pyrepr (move-into-lisp (pyobject-repr pyobject))))
+    (write-string (string-from-pyobject pyrepr) stream)))
 
 (defmethod print-object ((type python-class) stream)
   (print-unreadable-object (type stream)
@@ -506,14 +487,20 @@ functions (including getattr)."
            ,writer-form)))))
 
 (defmethod print-object ((exception python-exception) stream)
+  #+(or)
+  (print-unreadable-object (exception stream :type t)
+    (with-pyobjects ((pyexception exception))
+      (format stream "~A~%~A"
+              (move-into-lisp (pyexception-get-args pyexception))
+              (move-into-lisp (pyexception-get-traceback pyexception)))))
   (with-global-interpreter-lock-held
-    (with-place-rebound ((getattr *sys* (python-string-from-lisp-string "stderr"))
+    (with-place-rebound ((python-getattr *sys* (python-string-from-lisp-string "stderr"))
                          stream)
       (pyerr-display-exception
        (python-object-pyobject exception)))))
 
 (defmethod documentation ((python-object python-object) (doc-type (eql 't)))
-  (let ((doc (getattr python-object (python-string-from-lisp-string "__doc__"))))
+  (let ((doc (python-getattr python-object (python-string-from-lisp-string "__doc__"))))
     (cond ((typep doc 'python:str)
            (lisp-string-from-python-string doc))
           ((eql doc python:none)

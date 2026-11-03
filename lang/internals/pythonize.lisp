@@ -54,8 +54,9 @@
        (with-pyobjects ((pylist list))
          (loop for position below length
                for value = (convert-object strategy (elt vector position))
-               do (with-pyobjects ((pyvalue value))
-                    (pylist-setitem pylist position pyvalue))))))))
+               ;; PyList_SetItem steals the strong reference returned by
+               ;; MIRROR-INTO-PYTHON.
+               do (pylist-setitem pylist position (mirror-into-python value))))))))
 
 (defmethod convert-object
     ((strategy pythonize)
@@ -69,11 +70,16 @@
     (values
      tuple
      (lambda ()
+       ;; The tuple may already be referenced by other converted objects at
+       ;; this point, so we can't use PyTuple_SetItem, which insists on a
+       ;; reference count of one.
        (with-pyobjects ((pytuple tuple))
          (loop for position below length
-               for value in list
-               do (with-pyobjects ((pyvalue value))
-                    (pytuple-setitem pytuple position pyvalue))))))))
+               for element in list
+               for value = (convert-object strategy element)
+               ;; The tuple steals the strong reference returned by
+               ;; MIRROR-INTO-PYTHON.
+               do (pytuple-initialize-item pytuple position (mirror-into-python value))))))))
 
 (defmethod convert-object
     ((strategy pythonize)

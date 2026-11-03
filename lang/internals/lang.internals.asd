@@ -7,6 +7,7 @@
    "cffi"
    "closer-mop"
    "lang"
+   "trivial-package-local-nicknames"
    "trivial-garbage")
 
   :serial t
@@ -22,6 +23,7 @@
    (:file "mirror-into-python")
    (:file "modules")
    (:file "methods")
+   #+(or)
    (:file "lambda-lists")
    (:file "python")
    (:file "convert")

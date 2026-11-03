@@ -17,6 +17,28 @@
          'python:as
          'python:import))
 
+(defmacro python:import (module-name
+                         &optional
+                           (as nil as-supplied-p)
+                           (name nil name-supplied-p)
+                         &rest more-imports)
+  (when as-supplied-p
+    (assert (string-equal (symbol-name as) "as"))
+    (assert name-supplied-p))
+  (alexandria:with-gensyms (module package nickname)
+    `(let* ((,module (find-module ',module-name))
+            (,package (module-package ,module))
+            (,nickname ,(if name-supplied-p
+                            `',name
+                            `(string-upcase (module-name ,module)))))
+       (trivial-package-local-nicknames:add-package-local-nickname
+        ,nickname
+        ,package
+        ',*package*)
+       ,@(unless (null more-imports)
+           `((python:import ,@more-imports)))
+       ,module)))
+
 (defmacro python:assert (&rest expressions)
   `(progn
      ,@(loop for expression in expressions
@@ -78,9 +100,14 @@
 (defun iterator-next (iterator)
   (with-pyobjects ((pyiter iterator))
     (let ((pynext (pyiter-next pyiter)))
-      (if (cffi:null-pointer-p pynext)
-          (values python:none nil)
-          (values (move-into-lisp pynext) t)))))
+      (cond ((not (cffi:null-pointer-p pynext))
+             (values (move-into-lisp pynext) t))
+            ;; PyIter_Next returns NULL both on exhaustion and on error, and
+            ;; only sets an exception in the latter case.
+            ((not (cffi:null-pointer-p (pyerr-occurred)))
+             (python-error-handler))
+            (t
+             (values python:none nil))))))
 
 #+(or)
 (defmacro python:if (&whole whole test then &body more-clauses)
@@ -153,7 +180,7 @@
 
 (defun python:/ (number &rest more-numbers)
   (if (null more-numbers)
-      (__invert__ number)
+      (__truediv__ 1 number)
       (reduce #'__truediv__ more-numbers :initial-value number)))
 
 (defun python:// (number &rest more-numbers)
@@ -189,21 +216,20 @@
   (python:setattr lang.python (pythonize-string "cl")
                   (module-from-package (find-package "CL"))))
 
-(defparameter *globals*
-  (getattr *main* "__dict__"))
+(defparameter *globals* (python-getattr *main* (python-string-from-lisp-string "__dict__")))
 
 (defun stmt (string)
   (python:exec
    (pythonize-string string)
    *globals*
-   *globals*)
+   (python:dict))
   (values))
 
 (defun expr (string)
   (python:eval
    (pythonize-string string)
    *globals*
-   *globals*))
+   (python:dict)))
 
 (defun python (&rest strings)
   (loop for (string . rest) on strings do

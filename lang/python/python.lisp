@@ -14,8 +14,7 @@
       (lang:ensure-asdf-wrapper
        system-name
        '()
-       `((lang.internals::lisp-package-from-python-module
-          ,(string-upcase system-name)
-          ,module-name))))))
+       `((lang.internals::module-package
+          (lang.internals::find-module ,module-name)))))))
 
 (lang:register-lang-searcher "python" 'python-project-searcher)

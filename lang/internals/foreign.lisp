@@ -19,13 +19,31 @@
 (cffi:defcfun ("PyEval_RestoreThread" python-restore-thread) :void
   (thread :pointer))
 
+(cffi:defcfun ("PyEval_EvalCode" python-eval-code) pyobject
+  (code pyobject)
+  (globals pyobject)
+  (locals pyobject))
+
+(cffi:defcfun ("Py_CompileString" python-compile-string) pyobject
+  (str :string)
+  (file :string)
+  (start :int))
+
+(defconstant +py-single-input+ 256)
+(defconstant +py-file-input+ 257)
+(defconstant +py-eval-input+ 258)
+
 (cffi:defcfun ("PyThreadState_Get" python-current-thread) :pointer)
 
 (cffi:define-foreign-library libpython
-  (:unix (:or "libpython3.12.so"
+  (:unix (:or "libpython3.14.so"
+              "libpython3.13.so"
+              "libpython3.12.so"
               "libpython3.11.so.1"
               "libpython3.11.so"))
-  (t (:or (:default "libpython3.12")
+  (t (:or (:default "libpython3.14")
+          (:default "libpython3.13")
+          (:default "libpython3.12")
           (:default "libpython3.11"))))
 
 ;; Load Python as a shared library if its foreign symbols aren't available yet.
@@ -36,13 +54,12 @@
 (unless (python-initializedp)
   (python-initialize-ex nil))
 
-;; Determine the Python thread associated with this Lisp thread.
-(defvar *python-thread*
-  (if (python-gil-check)
-      (python-save-thread)
-      (let ((gil-state (python-gil-ensure)))
-        (unwind-protect (python-current-thread)
-          (python-gil-release gil-state)))))
+;; If this thread holds the global interpreter lock, e.g., because it just
+;; initialized Python, release it so that other threads can acquire it.  We
+;; never use the returned thread state directly: The PyGILState API below
+;; finds it again whenever this thread needs the lock.
+(when (python-gil-check)
+  (python-save-thread))
 
 (when (python-gil-check)
   (error "~%Failed to release the global interpreter lock."))
@@ -58,16 +75,17 @@
     ((python-gil-check)
      (let ((*global-interpreter-lock-held* t))
        (funcall thunk)))
-    ;; Case 3 - Acquire the lock and release it when the thunk returns.
+    ;; Case 3 - Acquire the lock and release it when the thunk returns.  The
+    ;; PyGILState API uses a separate Python thread state for each OS thread,
+    ;; creating one if necessary.  This matters because SBCL runs finalizers
+    ;; in a thread of their own, and because SLIME evaluates in worker threads.
     (t
      (let ((*global-interpreter-lock-held* t))
+       ;; Mask floating point traps while interacting with Python code.
        (sb-int:with-float-traps-masked (:underflow :overflow :inexact :invalid :divide-by-zero)
-         (python-restore-thread *python-thread*)
-         (unwind-protect (funcall thunk)
-           (let ((thread (python-save-thread)))
-             ;; Not sure how to deal with multiple Python threads.  For now, we
-             ;; assume there is only one Python thread.
-             (assert (cffi:pointer-eq thread *python-thread*)))))))))
+         (let ((gil-state (python-gil-ensure)))
+           (unwind-protect (funcall thunk)
+             (python-gil-release gil-state))))))))
 
 (defmacro with-global-interpreter-lock-held (&body body)
   `(call-with-global-interpreter-lock-held (lambda () ,@body)))
@@ -97,7 +115,7 @@
   (string :string)
   (size :size))
 
-(cffi:defcfun ("PyByteArray_Size" pybytearray-size) :size
+(cffi:defcfun ("PyByteArray_Size" pybytearray-size) pyssize
   (pybytearray pyobject))
 
 (cffi:defcfun ("PyByteArray_AsString" pybytearray-as-string) :string
@@ -121,15 +139,17 @@
 (cffi:defcfun ("PyBytes_FromObject" pybytes-from-object) pyobject
   (pyobject pyobject))
 
-(cffi:defcfun ("PyBytes_Size" pybytes-size) :size
+(cffi:defcfun ("PyBytes_Size" pybytes-size) pyssize
   (pybytes pyobject))
 
 (cffi:defcfun ("PyBytes_AsString" pybytes-as-string) :string
   (pybytes pyobject))
 
-(cffi:defcfun ("PyBytes_Concat" pybytes-concat) pyobject
-  (pybytes-1 pyobject)
-  (pybytes-2 pyobject))
+;; Replaces the object at PYBYTES-POINTER with the concatenation, or with NULL
+;; on failure.
+(cffi:defcfun ("PyBytes_Concat" pybytes-concat) :void
+  (pybytes-pointer (:pointer pyobject))
+  (pybytes pyobject))
 
 ;;; PyCallable
 
@@ -243,17 +263,23 @@
 (cffi:defcfun ("PyDict_Items" pydict-items) pyobject
   (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Size" pydict-size) :size
+(cffi:defcfun ("PyDict_Size" pydict-size) pyssize
   (pydict pyobject))
 
 (cffi:defcfun ("PyDict_Copy" pydict-copy) pyobject
   (pydict pyobject))
 
-(cffi:defcfun ("PyDict_Contains" pydict-contains) :bool
+(cffi:defcfun ("PyDict_Contains" pydict-contains) pybool
   (pydict pyobject)
   (key pyobject))
 
-;;; PyErr
+;;; PyErr & PyExc
+
+;; Unlike PyBaseObject_Type and friends, which are the type structs
+;; themselves, PyExc_BaseException is a variable holding a pointer to the type.
+(declaim (pyobject *base-exception-pyobject*))
+(defparameter *base-exception-pyobject*
+  (cffi:mem-ref (cffi:foreign-symbol-pointer "PyExc_BaseException") :pointer))
 
 (cffi:defcfun ("PyErr_Print" pyerr-print) :void)
 
@@ -271,7 +297,10 @@
   (pytype pyobject)
   (pyvalue pyobject))
 
-(cffi:defcfun ("PyErr_GetArgs" pyerr-getargs) pyobject
+(cffi:defcfun ("PyException_GetArgs" pyexception-get-args) pyobject
+  (pyerr pyobject))
+
+(cffi:defcfun ("PyException_GetTraceback" pyexception-get-traceback) pyobject
   (pyerr pyobject))
 
 (cffi:defcfun ("PyErr_Occurred" pyerr-occurred) :pointer)
@@ -346,6 +375,22 @@
 (cffi:defcfun ("PyLong_AsLong" pylong-as-long) :long
   (pyobject pyobject))
 
+(cffi:defcfun ("PyLong_FromLongLong" pylong-from-long-long) pyobject
+  (long-long :long-long))
+
+(cffi:defcfun ("PyLong_AsLongLongAndOverflow" pylong-as-long-long-and-overflow) :long-long
+  (pyobject pyobject)
+  (overflow (:pointer :int)))
+
+(cffi:defcfun ("PyLong_FromString" pylong-from-string) pyobject
+  (string :string)
+  (end :pointer)
+  (base :int))
+
+(cffi:defcfun ("PyNumber_ToBase" pynumber-to-base) pyobject
+  (pynumber pyobject)
+  (base :int))
+
 (cffi:defcfun ("PyLong_GetInfo" pylong-info) pyobject)
 
 ;;; PyList
@@ -355,7 +400,7 @@
 (cffi:defcfun ("PyList_New" pylist-new) pyobject
   (size :size))
 
-(cffi:defcfun ("PyList_Size" pylist-size) :size
+(cffi:defcfun ("PyList_Size" pylist-size) pyssize
   (pylist pyobject))
 
 (cffi:defcfun ("PyList_GetItem" pylist-getitem) pyobject
@@ -369,7 +414,7 @@
 
 ;;; PyMapping
 
-(cffi:defcfun ("PyMapping_Size" pymapping-size) :size
+(cffi:defcfun ("PyMapping_Size" pymapping-size) pyssize
   (pymapping pyobject))
 
 (cffi:defcfun ("PyMapping_HasKeyString" pymapping-has-key-string) :bool
@@ -410,6 +455,10 @@
 
 (cffi:defcfun ("PyImport_ImportModule" pyimport-import-module) pyobject
   (name :string))
+
+(cffi:defcfun ("PyImport_GetModule" pyimport-get-module) pyobject
+  (pyname pyobject))
+
 
 (cffi:defcfun ("PyImport_Import" pyimport-import) pyobject
   (pyname pyobject))
@@ -580,16 +629,16 @@
   (pyright pyobject)
   (cmp pycmp))
 
-(cffi:defcfun ("PyObject_Hash" pyobject-hash) :uint
+(cffi:defcfun ("PyObject_Hash" pyobject-hash) pyssize
   (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_IsTrue" pyobject-truep) :bool
+(cffi:defcfun ("PyObject_IsTrue" pyobject-truep) pybool
   (pyobject pyobject))
 
 (cffi:defcfun ("Py_IsFalse" pyobject-falsep) :bool
   (pyobject pyobject))
 
-(cffi:defcfun ("PyObject_Not" pyobject-not) :bool
+(cffi:defcfun ("PyObject_Not" pyobject-not) pybool
   (pyobject pyobject))
 
 (cffi:defcfun ("PyObject_Dir" pyobject-dir) pyobject
@@ -600,9 +649,12 @@
 
 (declaim (inline pyobject-typep))
 (defun pyobject-typep (pyobject pytype)
-  (pytype-subtypep (pyobject-type pyobject) pytype))
+  ;; PyObject_Type returns a new reference that we have to release again.
+  (let ((pyobject-type (pyobject-type pyobject)))
+    (prog1 (pytype-subtypep pyobject-type pytype)
+      (pyobject-decref pyobject-type))))
 
-(cffi:defcfun ("PyObject_Size" pyobject-size) :size
+(cffi:defcfun ("PyObject_Size" pyobject-size) pyssize
   (pyobject pyobject))
 
 (cffi:defcfun ("_PySys_GetSizeOf" pyobject-sizeof) :size
@@ -648,7 +700,7 @@
 (cffi:defcfun ("PySequence_Check" pysequencep) :bool
   (pyobject pyobject))
 
-(cffi:defcfun ("PySequence_Size" pysequence-size) :size
+(cffi:defcfun ("PySequence_Size" pysequence-size) pyssize
   (pyobject pyobject))
 
 (cffi:defcfun ("PySequence_Concat" pysequence-concat) pyobject
@@ -673,7 +725,7 @@
   (index :size)
   (pyvalue pyobject))
 
-(cffi:defcfun ("PySequence_DelItem" pysequence-delitem) pyobject
+(cffi:defcfun ("PySequence_DelItem" pysequence-delitem) pystatus
   (pysequence pyobject)
   (index :size))
 
@@ -683,7 +735,7 @@
   (end :size)
   (pysource pyobject))
 
-(cffi:defcfun ("PySequence_DelSlice" pysequence-delslice) pyobject
+(cffi:defcfun ("PySequence_DelSlice" pysequence-delslice) pystatus
   (pytarget pyobject)
   (start :size)
   (end :size))
@@ -697,11 +749,11 @@
 (cffi:defcfun ("PySequence_Fast" pysequence-fast) pyobject
   (pysequence pyobject))
 
-(cffi:defcfun ("PySequence_Contains" pysequence-contains) pyobject
+(cffi:defcfun ("PySequence_Contains" pysequence-contains) pybool
   (pysequence pyobject)
   (pyobject pyobject))
 
-(cffi:defcfun ("PySequence_Index" pysequence-index) :size
+(cffi:defcfun ("PySequence_Index" pysequence-index) pyssize
   (pysequence pyobject)
   (pyobject pyobject))
 
@@ -733,7 +785,7 @@
 (cffi:defcfun ("PyTuple_New" pytuple-new) pyobject
   (size :size))
 
-(cffi:defcfun ("PyTuple_Size" pytuple-size) :size
+(cffi:defcfun ("PyTuple_Size" pytuple-size) pyssize
   (pytuple pyobject))
 
 (cffi:defcfun ("PyTuple_GetItem" pytuple-getitem) pyobject

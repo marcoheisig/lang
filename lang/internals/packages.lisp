@@ -187,6 +187,7 @@
      #:format
      #:frozenset
      #:getattr
+     #:getitem
      #:globals
      #:hasattr
      #:hash
@@ -229,10 +230,7 @@
      #:type
      #:vars
      #:zip
-     #:__import__
-     ;; Auxiliary Functions
-     #:getitem
-     ))
+     #:__import__))
 
   (defpackage #:lang.python.builtins
     (:use #:lang.python)
@@ -245,6 +243,9 @@
     (:use #:closer-common-lisp)
     #3=
     (:export
+     ;; Auxiliary Functions
+     #:hasattr
+     #:getattr
      ;; convert.lisp
      #:convert
      #:convert-object

@@ -103,15 +103,23 @@ object."))
       (4 (__gt__ a b))
       (5 (__ge__ a b)))))
 
-(cffi:defcallback __hash__ :uint
+(cffi:defcallback __hash__ :ssize
     ((object pyobject))
-  (__hash__ (mirror-into-lisp object)))
+  (let ((hash (__hash__ (mirror-into-lisp object))))
+    ;; Python reserves the hash value -1 for signaling errors.
+    (if (= hash -1) -2 hash)))
 
 (cffi:defcallback __richcmp__ pyobject
     ((o1 pyobject)
      (o2 pyobject)
      (cmp :int))
-  (__richcmp__ o1 o2 cmp))
+  (let ((result (__richcmp__ o1 o2 cmp)))
+    ;; Return Python results as they are, and translate Lisp's generalized
+    ;; booleans to Python's True and False.
+    (if (or (typep result 'python-object)
+            (typep result 'python-exception))
+        (mirror-into-python result)
+        (pybool-from-long (if result 1 0)))))
 
 ;;; Sequence and Mapping Methods
 
@@ -141,7 +149,8 @@ object."))
      (index :ssize))
   (__sq_getitem__ pyobject index))
 
-(define-pycallable __setitem__ (object index value))
+(defgeneric __setitem__ (object index value)
+  (:generic-function-class lispifying-generic-function))
 
 (cffi:defcallback __setitem__ :int
     ((pyobject pyobject)

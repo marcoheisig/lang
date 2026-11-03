@@ -155,6 +155,35 @@ the PyObject's refcount."
         (setf (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
               (1- value)))))
 
+;;; Tuple Initialization
+
+(defconstant +pytuple-items-offset+
+  ;; Locate the byte offset to the first item of a tuple by storing a known
+  ;; object in a fresh tuple and searching for it.
+  (with-global-interpreter-lock-held
+    (let ((pytuple (pytuple-new 1)))
+      (pyobject-incref *none-pyobject*)
+      (pytuple-setitem pytuple 0 *none-pyobject*)
+      (prog1 (loop for offset from 0 to 64 by +pointer-size+
+                   when (cffi:pointer-eq (cffi:mem-ref pytuple :pointer offset)
+                                         *none-pyobject*)
+                     return offset
+                   finally
+                      (error "Failed to determine the item offset of Python tuples."))
+        (pyobject-decref pytuple))))
+  "The byte offset from the start of a Python tuple to its first item.")
+
+(defun pytuple-initialize-item (pytuple position pyvalue)
+  "Store PYVALUE in the still uninitialized slot POSITION of PYTUPLE, stealing the
+reference.  Unlike PyTuple_SetItem, this works even when the tuple's reference
+count is larger than one, which happens when initializing tuples that are
+already referenced elsewhere.  Equivalent to the PyTuple_SET_ITEM macro."
+  (declare (pyobject pytuple pyvalue))
+  (assert (cffi:null-pointer-p
+           (cffi:mem-aref (cffi:inc-pointer pytuple +pytuple-items-offset+) :pointer position)))
+  (setf (cffi:mem-aref (cffi:inc-pointer pytuple +pytuple-items-offset+) :pointer position)
+        pyvalue))
+
 ;;; String Conversion
 
 (defun string-from-pyobject (pyobject)
@@ -180,11 +209,25 @@ the PyObject's refcount."
   (let* ((string (string string))
          (octets (sb-ext:string-to-octets string :external-format :utf-8))
          (nbytes (length octets)))
-    (cffi:with-foreign-object (errors :pointer)
-      (cffi:with-foreign-object (char-pointer :uchar nbytes)
-        (loop for index below nbytes do
-          (setf (cffi:mem-ref char-pointer :uchar index)
-                (aref octets index)))
-        (with-global-interpreter-lock-held
-          (pyunicode-decode-utf8 char-pointer nbytes errors))))))
+    (cffi:with-foreign-object (char-pointer :uchar nbytes)
+      (loop for index below nbytes do
+        (setf (cffi:mem-ref char-pointer :uchar index)
+              (aref octets index)))
+      ;; Passing NULL as the error handler name selects 'strict'.
+      (with-global-interpreter-lock-held
+        (pyunicode-decode-utf8 char-pointer nbytes (cffi:null-pointer))))))
 
+;;; Eval
+
+(defun python-eval (string)
+  (with-global-interpreter-lock-held
+    (let* ((main (pyimport-import-module "__main__"))
+           (globals (pyobject-getattr-string main "__dict__"))
+           (locals (pydict-new))
+           (code (python-compile-string string "bootstrap.lisp" +py-single-input+))
+           (result (python-eval-code code globals locals)))
+      (prog1 result
+        (pyobject-decref main)
+        (pyobject-decref globals)
+        (pyobject-decref locals)
+        (pyobject-decref code)))))

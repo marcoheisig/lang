@@ -155,38 +155,49 @@ arguments and possibly a rest argument."
         (declare (type (simple-array (unsigned-byte 64) (*)) argv)
                  (type cffi:foreign-pointer kwnames)
                  (dynamic-extent argv))
-        ;; Mirror all positional arguments to Python.
-        (loop for index below nargs
-              for arg in args
-              do (setf (aref argv (+ 1 index))
-                       ;; TODO mirror-into-python returns a strong reference,
-                       ;; but we should pass a borrowed reference instead.
-                       (pyobject-address
-                        (mirror-into-python arg))))
-        ;; Mirror all keyword arguments to Python.
-        (loop for index below nkwargs
-              for kwarg in kwstart
-              do (setf (pytuple-getitem kwnames index)
-                       (python-object-pyobject (kwarg-key kwarg)))
-              do (setf (aref argv (+ 1 nargs index))
-                       ;; TODO mirror-into-python returns a strong reference,
-                       ;; but we should pass a borrowed reference instead.
-                       (pyobject-address
-                        (mirror-into-python
-                         (kwarg-value kwarg)))))
-        ;; Perform the actual call and mirror the result into Lisp.
-        (let ((pyobject (pyobject-vectorcall
-                         pycallable
-                         (cffi:mem-aptr (sb-sys:vector-sap argv) :pointer 1)
-                         (+ nargs nkwargs +python-vectorcall-arguments-offset+)
-                         kwnames)))
+        ;; Zero the argument vector, so that the cleanup below can tell
+        ;; which arguments have already been mirrored.
+        (fill argv 0)
+        (unwind-protect
+             (progn
+               ;; Mirror all positional arguments to Python.  Each entry of
+               ;; ARGV is a strong reference that is released below.
+               (loop for index below nargs
+                     for arg in args
+                     do (setf (aref argv (+ 1 index))
+                              (pyobject-address
+                               (mirror-into-python arg))))
+               ;; Mirror all keyword arguments to Python.
+               (loop for index below nkwargs
+                     for kwarg in kwstart
+                     ;; PyTuple_SetItem steals a reference, so we pass it a
+                     ;; strong reference to the keyword string.
+                     do (setf (pytuple-getitem kwnames index)
+                              (mirror-into-python (kwarg-key kwarg)))
+                     do (setf (aref argv (+ 1 nargs index))
+                              (pyobject-address
+                               (mirror-into-python
+                                (kwarg-value kwarg)))))
+               ;; Perform the actual call and mirror the result into Lisp.
+               (move-into-lisp
+                (pyobject-vectorcall
+                 pycallable
+                 (cffi:mem-aptr (sb-sys:vector-sap argv) :pointer 1)
+                 ;; Vectorcall expects only the number of positional
+                 ;; arguments here and derives the number of keyword
+                 ;; arguments from KWNAMES.
+                 (+ nargs +python-vectorcall-arguments-offset+)
+                 kwnames)))
           ;; Ensure that arguments aren't collected before this point.
           (touch args)
-          ;; Release the Python list of keywords.
+          ;; Release the strong references to all arguments.
+          (loop for index from 1 below (length argv)
+                for address = (aref argv index)
+                unless (zerop address)
+                  do (pyobject-decref (cffi:make-pointer address)))
+          ;; Release the Python tuple of keywords.
           (unless (cffi:null-pointer-p kwnames)
-            (pyobject-decref kwnames))
-          ;; Mirror the result into Lisp.
-          (move-into-lisp pyobject))))))
+            (pyobject-decref kwnames)))))))
 
 (defmacro with-pyobjects (bindings &body body)
   "Bind each variable to a borrowed reference to the PyObject corresponding to each
@@ -208,8 +219,22 @@ Example:
 (defun lisp-integer-from-python-integer (python-integer)
   (declare (python-object python-integer))
   (with-pyobjects ((pylong python-integer))
-    ;; TODO support bignums
-    (pylong-as-long pylong)))
+    (cffi:with-foreign-object (overflow :int)
+      (let ((value (pylong-as-long-long-and-overflow pylong overflow)))
+        (cond ((not (zerop (cffi:mem-ref overflow :int)))
+               ;; The integer doesn't fit into a long long, so we take a detour
+               ;; via its hexadecimal string representation "[-]0x...".
+               (let* ((string
+                        (with-pyobjects ((pystring (move-into-lisp (pynumber-to-base pylong 16))))
+                          (string-from-pyobject pystring)))
+                      (negativep (char= (schar string 0) #\-))
+                      (start (if negativep 3 2))
+                      (magnitude (parse-integer string :start start :radix 16)))
+                 (if negativep (- magnitude) magnitude)))
+              ((and (= value -1)
+                    (not (cffi:null-pointer-p (pyerr-occurred))))
+               (python-error-handler))
+              (t value))))))
 
 (defun lisp-float-from-python-float (python-float)
   (declare (python-object python-float))
@@ -230,8 +255,10 @@ Example:
 (defun python-integer-from-lisp-integer (lisp-integer)
   (declare (integer lisp-integer))
   (with-global-interpreter-lock-held
-    ;; TODO support bignums
-    (move-into-lisp (pylong-from-long lisp-integer))))
+    (move-into-lisp
+     (if (typep lisp-integer '(signed-byte 64))
+         (pylong-from-long-long lisp-integer)
+         (pylong-from-string (format nil "~X" lisp-integer) (cffi:null-pointer) 16)))))
 
 (defun python-float-from-lisp-float (lisp-float)
   (declare (float lisp-float))
@@ -254,15 +281,53 @@ Example:
     (move-into-lisp
      (pyobject-from-string lisp-string))))
 
-(defun find-module (module-name)
-  (with-global-interpreter-lock-held
+(defun python-hasattr (python-object python-string)
+  "An implementation of hasattr that we use to load all built-in Python
+functions (including hasattr)."
+  (with-pyobjects ((pyobject python-object)
+                   (pystring python-string))
+    (pyobject-hasattr pyobject pystring)))
+
+(defun python-getattr (python-object python-string)
+  "An implementation of getattr that we use to load all built-in Python
+functions (including getattr)."
+  (with-pyobjects ((pyobject python-object)
+                   (pystring python-string))
     (move-into-lisp
-     (etypecase module-name
-       (string
-        (pyimport-import-module module-name))
-       (python-object
-        (with-pyobjects ((pyname module-name))
-          (pyimport-import pyname)))))))
+     (pyobject-getattr pyobject pystring))))
+
+(defun python-getitem (python-object key)
+  (with-pyobjects ((pyobject python-object)
+                   (pykey key))
+    (move-into-lisp
+     (pyobject-getitem pyobject pykey))))
+
+(defun (setf python-getattr) (python-value python-object python-string)
+  (with-pyobjects ((pyvalue python-value)
+                   (pyobject python-object)
+                   (pystring python-string))
+    (pyobject-setattr pyobject pystring pyvalue)
+    python-value))
+
+(defun (setf python-getitem) (python-value python-object python-key)
+  (with-pyobjects ((pyvalue python-value)
+                   (pyobject python-object)
+                   (pykey python-key))
+    (pyobject-setitem pyobject pykey pyvalue)
+    python-value))
+
+(defun find-module (module-name)
+  (move-into-lisp
+   (etypecase module-name
+     (string
+      (with-global-interpreter-lock-held
+        (pyimport-import-module module-name)))
+     (symbol
+      (with-global-interpreter-lock-held
+        (pyimport-import-module (string-downcase (symbol-name module-name)))))
+     (python-object
+      (with-pyobjects ((pyname module-name))
+        (pyimport-import pyname))))))
 
 (ensure-class
  'python:type
@@ -287,6 +352,10 @@ Example:
 
 ;; Define the module class and (f)bind python:module.
 
+(defgeneric module-package (module))
+
+(defgeneric module-symbol-table (module))
+
 (ensure-class
  'python:module
  :metaclass (find-class 'python:type)
@@ -310,16 +379,56 @@ Example:
 (defparameter python:module
   (find-class 'python:module))
 
-;; For reasons I haven't fully understood yet, these modules have to be
-;; imported once before doing anything else, or they won't be mirrored as a
-;; module but as builting_function_or_method.  It probably has something to do
-;; with some CPython hack to improve startup times.
-(defparameter *weird-modules*
-  (with-global-interpreter-lock-held
-    (list (pyimport-import-module "ast")
-          (pyimport-import-module "collections.abc")
-          (pyimport-import-module "inspect")
-          (pyimport-import-module "weakref"))))
+;;; Ensure that LD_LIBRARY_PATH points to the location of the currently loaded
+;;; libpython.
+(with-global-interpreter-lock-held
+  (let* ((os (pyimport-import-module "os"))
+         (environ (pyobject-getattr-string os "environ"))
+         (pykey (pyobject-from-string "LD_LIBRARY_PATH"))
+         (pyvalue
+           (pyobject-from-string
+            (directory-namestring
+             (cffi:foreign-library-pathname
+              (cffi::get-foreign-library 'libpython))))))
+    (pyobject-setitem environ pykey pyvalue)
+    (pyobject-decref os)
+    (pyobject-decref environ)
+    (pyobject-decref pykey)
+    (pyobject-decref pyvalue)))
+
+;;; CPython uses several hacks to speed up its load times, in a way that some
+;;; built-in modules are in an inconsistent state the first time they are
+;;; accessed.  This is usually not a problem, since the first access is
+;;; typically just an import statement.  It is a problem for lang, though,
+;;; because it immediately descends deep into each module and its children.
+;;; The solution is to load all these modules right away to hide these
+;;; shenanigans from the user:
+
+(with-global-interpreter-lock-held
+  (pyobject-decref (pyimport-import-module "ast"))
+  (pyobject-decref (pyimport-import-module "collections.abc"))
+  (pyobject-decref (pyimport-import-module "inspect"))
+  (pyobject-decref (pyimport-import-module "re"))
+  (pyobject-decref (pyimport-import-module "weakref")))
+
+(defun reset-mirror-into-lisp-machinery ()
+  "Cursed function - don't use."
+  (let ((keep (list
+               (find-class 'python:type)
+               (find-class 'python:object)
+               (find-class 'python:none)
+               (find-class 'python:module))))
+    (loop for (key . value) in (alexandria:hash-table-alist *mirror-into-lisp-table*) do
+      (unless (member value keep)
+        (typecase value
+          (python:type
+           (reinitialize-instance value :direct-superclasses '())
+           (setf (find-class (class-name value))
+                 nil))
+          (python:module
+           (delete-package (module-package value))))
+        ;; Drop the table entry.
+        (remhash key *mirror-into-lisp-table*)))))
 
 (defun make-mirror-object (reference-type pyobject)
   (with-global-interpreter-lock-held
@@ -365,15 +474,21 @@ Example:
                     (lambda (superclass)
                       (subtypep (class-name superclass) 'python-exception))
                     direct-superclasses))
-               ;; Find or create a condition.
-               (or (find-class lisp-name nil)
-                   (find-class
-                    (eval `(define-condition ,lisp-name
-                               ,(mapcar #'class-name direct-superclasses)
-                             ()))))
+               ;; Find or create a condition.  Conditions can't be Python
+               ;; objects, so we register the mapping between the condition
+               ;; class and its PyType manually.  The strong reference to the
+               ;; PyType is never released, just like the condition class.
+               (register-condition-class
+                (or (find-class lisp-name nil)
+                    (find-class
+                     (eval `(define-condition ,lisp-name
+                                ,(mapcar #'class-name direct-superclasses)
+                              ()))))
+                pyobject)
                ;; Find or create a class.
                (if (find-class lisp-name nil)
-                   (error "Attempt to overwrite the mirror class ~S." lisp-name)
+                   (error "Attempt to overwrite a mirror class: ~S"
+                          lisp-name)
                    (ensure-class
                     lisp-name
                     :metaclass class
@@ -386,21 +501,32 @@ Example:
 
 (defun pytype-defining-pymodule (pytype)
   "Returns the PyModule that defines the supplied PyType.  Returns
-NIL if the type has no module or is not a toplevel definition of its module."
+NIL if the type has no module or is not a toplevel definition of its module.
+
+The result is a borrowed reference that is kept alive by sys.modules."
   (with-global-interpreter-lock-held
-    (when (pyobject-hasattr-string pytype "__module__")
-      (with-pyobjects
-          ((pytype-name (move-into-lisp (pyobject-getattr-string pytype "__qualname__")))
-           (pymodule-name (move-into-lisp (pyobject-getattr-string pytype "__module__")))
-           (pymodule (move-into-lisp (pyimport-import pymodule-name)))
-           (pyvalue (move-into-lisp
-                     (if (pyobject-hasattr pymodule pytype-name)
-                         (pyobject-getattr pymodule pytype-name)
-                         (pylong-from-long 0)))))
-        (when (and (pyobject-typep pymodule *module-pyobject*)
-                   (pyobject-hasattr pymodule pytype-name)
-                   (cffi:pointer-eq pytype pyvalue))
-          pymodule)))))
+    (let ((pytype-name nil)
+          (pymodule-name nil)
+          (pymodule nil)
+          (pyvalue nil))
+      (unwind-protect
+           (when (and (pyobject-hasattr-string pytype "__qualname__")
+                      (pyobject-hasattr-string pytype "__module__"))
+             (setf pytype-name (pyobject-getattr-string pytype "__qualname__"))
+             (setf pymodule-name (pyobject-getattr-string pytype "__module__"))
+             (when (pyobject-typep pymodule-name *unicode-pyobject*)
+               ;; PyImport_GetModule returns NULL without setting an exception
+               ;; when the module isn't in sys.modules.
+               (setf pymodule (pyimport-get-module pymodule-name))
+               (when (and (not (cffi:null-pointer-p pymodule))
+                          (pyobject-typep pymodule *module-pyobject*)
+                          (pyobject-hasattr pymodule pytype-name))
+                 (setf pyvalue (pyobject-getattr pymodule pytype-name))
+                 (when (cffi:pointer-eq pytype pyvalue)
+                   pymodule))))
+        (dolist (pyobject (list pytype-name pymodule-name pymodule pyvalue))
+          (when (and pyobject (not (cffi:null-pointer-p pyobject)))
+            (pyobject-decref pyobject)))))))
 
 (defun pymodule-package-and-symbol-table (pymodule)
   (declare (pyobject pymodule))
@@ -419,21 +545,25 @@ NIL if the type has no module or is not a toplevel definition of its module."
     (let* ((dict (pymodule-dict pymodule))
            (keys (pydict-keys dict))
            (size (pydict-size dict)))
-      (python-to-lisp-naming
-       ;; Determine the module name.
-       (or (pymodule-name pymodule)
-           (format nil "unnamed-module-~X" (random most-positive-fixnum)))
-       ;; Determine the module contents.
-       (loop for index below size
-             collect
-             (string-from-pyobject
-              (pylist-getitem keys index)))))))
+      (unwind-protect
+           (python-to-lisp-naming
+            ;; Determine the module name.
+            (or (pymodule-name pymodule)
+                (format nil "unnamed-module-~X" (random most-positive-fixnum)))
+            ;; Determine the module contents.
+            (loop for index below size
+                  collect
+                  (string-from-pyobject
+                   (pylist-getitem keys index))))
+        (pyobject-decref keys)))))
 
 (defun pytype-direct-superclasses (pyobject)
   (declare (cffi:foreign-pointer pyobject))
   (with-global-interpreter-lock-held
     (let ((bases (pyobject-getattr-string pyobject "__bases__")))
-      (loop for position below (pytuple-size bases)
-            collect
-            (mirror-into-lisp
-             (pytuple-getitem bases position))))))
+      (unwind-protect
+           (loop for position below (pytuple-size bases)
+                 collect
+                 (mirror-into-lisp
+                  (pytuple-getitem bases position)))
+        (pyobject-decref bases)))))

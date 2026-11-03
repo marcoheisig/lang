@@ -3,10 +3,11 @@
 ;;; Mapping names from Python to Lisp and vice versa has to take the following
 ;;; rules into account:
 ;;;
-;;; - Python only has one namespace per module, but the value corresponding to
-;;;   each name can be a type, a function, and a value at the same time.
-;;;
 ;;; - Lisp has separate namespaces for functions, variables, and types.
+;;;
+;;; - Python only has one namespace per module, but the value corresponding to
+;;;   each name may have a corresponding entry in several Common Lisp
+;;;   namespaces.
 ;;;
 ;;; - A Python name must obey certain rules (no hyphens, doesn't start with a
 ;;;   digit), and should follow certain conventions (capitalized class names,
@@ -23,7 +24,7 @@
 ;;; appending an increasing counter to each subsequent entry that would
 ;;; otherwise have the same name.
 ;;;
-;;; Both Python modules and Lisp pacakges can be modified at runtime, but we
+;;; Both Python modules and Lisp packages can be modified at run time, but we
 ;;; disregard this possibility when creating symbol tables because it is
 ;;; considered bad practice anyway.  Also, incremental changes would result in
 ;;; names that depend on the order of those changes, which is undesirable.  For

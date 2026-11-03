@@ -55,3 +55,38 @@
     `(progn (when (= ,pystatus -1)
               (python-error-handler))
             ,pystatus)))
+
+;;; A C int that is either 0 (false), 1 (true), or -1 (error), such as the
+;;; result of PyObject_IsTrue.
+
+(cffi:define-foreign-type pybool-type ()
+  ()
+  (:actual-type :int))
+
+(cffi:define-parse-method pybool ()
+  (make-instance 'pybool-type))
+
+(defmethod cffi:expand-from-foreign (pybool (pybool-type pybool-type))
+  (alexandria:once-only (pybool)
+    `(progn (when (= ,pybool -1)
+              (python-error-handler))
+            (= ,pybool 1))))
+
+;;; A Py_ssize_t that signals an error when it is -1, such as the result of
+;;; PyObject_Size or PyObject_Hash.
+
+(cffi:define-foreign-type pyssize-type ()
+  ()
+  (:actual-type :ssize))
+
+(cffi:define-parse-method pyssize ()
+  (make-instance 'pyssize-type))
+
+(defmethod cffi:expand-to-foreign (pyssize (pyssize-type pyssize-type))
+  pyssize)
+
+(defmethod cffi:expand-from-foreign (pyssize (pyssize-type pyssize-type))
+  (alexandria:once-only (pyssize)
+    `(progn (when (= ,pyssize -1)
+              (python-error-handler))
+            ,pyssize)))
