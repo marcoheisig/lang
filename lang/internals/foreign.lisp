@@ -985,11 +985,14 @@
 
 (defun make-pytype
     (name basicsize itemsize flags
-     &rest slots &key &allow-other-keys)
+     &rest slots &key metaclass &allow-other-keys)
+  "Create a new Python type from the supplied type slots.  If METACLASS is
+supplied, it is a borrowed reference to the type of the new type."
   (declare (string name)
            (type (signed-byte 32) basicsize itemsize)
            (list flags))
-  (let ((id-value-alist '())
+  (let ((slots (alexandria:remove-from-plist slots :metaclass))
+        (id-value-alist '())
         (flags
           (apply #'logior
                    (loop for keyword in flags
@@ -1030,4 +1033,6 @@
                 slots)
           ;; Create a new Python class.
           (with-global-interpreter-lock-held
-            (pytype-from-spec spec)))))))
+            (if metaclass
+                (pytype-from-metaclass metaclass (cffi:null-pointer) spec (cffi:null-pointer))
+                (pytype-from-spec spec))))))))

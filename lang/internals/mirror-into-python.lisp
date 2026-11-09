@@ -54,24 +54,36 @@ vice versa.  Consumes one strong reference to PYTYPE."
     pyobject))
 
 (defmethod mirror-into-python :around ((object t))
-  (multiple-value-bind (pyobject presentp)
-      (gethash object *mirror-into-python-table*)
-    (if presentp
-        (with-global-interpreter-lock-held
-          (pyobject-incref pyobject)
-          pyobject)
-        (let ((pyobject (call-next-method)))
-          (setf (gethash object *mirror-into-python-table*)
-                pyobject)
-          (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-                object)
-          pyobject))))
+  ;; The table doesn't own its PyObjects.  Each entry is removed by the
+  ;; __finalize__ callback, which runs while the GIL is held.  Holding the GIL
+  ;; from the lookup to the incref ensures that the PyObject can't be finalized
+  ;; in between.
+  (with-global-interpreter-lock-held
+    (multiple-value-bind (pyobject presentp)
+        (gethash object *mirror-into-python-table*)
+      (if presentp
+          (progn (pyobject-incref pyobject)
+                 pyobject)
+          (let ((new-pyobject (call-next-method)))
+            ;; Creating the mirror may run Python code, which may temporarily
+            ;; release the GIL, so another thread may have mirrored OBJECT in
+            ;; the meantime.  In that case we discard our mirror.
+            (multiple-value-bind (pyobject presentp)
+                (gethash object *mirror-into-python-table*)
+              (cond (presentp
+                     (pyobject-incref pyobject)
+                     (pyobject-decref new-pyobject)
+                     pyobject)
+                    (t
+                     (setf (gethash object *mirror-into-python-table*)
+                           new-pyobject)
+                     (setf (gethash (pyobject-address new-pyobject) *mirror-into-lisp-table*)
+                           object)
+                     new-pyobject))))))))
 
 (defmethod mirror-into-python ((object t))
-  (with-global-interpreter-lock-held
-    (pyobject-call-no-args
-     (mirror-into-python
-      (class-of object)))))
+  (with-pyobjects ((pytype (class-of object)))
+    (pyobject-call-no-args pytype)))
 
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
@@ -154,26 +166,37 @@ vice versa.  Consumes one strong reference to PYTYPE."
    "The type of all Common Lisp types on the Python heap."))
 
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-object))))
-  (make-pytype
-   "lang.lisp.LispObject"
-   (+ +pyobject-header-size+ +pointer-size+)
-   0
-   '(:default :basetype)
-   :tp-base *object-pyobject*
-   :tp-doc (cffi:null-pointer)
-   :tp-finalize (cffi:callback __finalize__)))
+  (with-pyobjects ((metaclass (find-class 'lisp-type)))
+    (make-pytype
+     "lang.lisp.LispObject"
+     (+ +pyobject-header-size+ +pointer-size+)
+     0
+     '(:default :basetype)
+     :metaclass metaclass
+     :tp-base *object-pyobject*
+     :tp-doc (cffi:null-pointer)
+     :tp-finalize (cffi:callback __finalize__))))
 
+;;; All other types that mirror Lisp classes are instances of LispType, so
+;;; that its __finalize__ callback removes their table entries when they die.
+;;; LispType itself is an instance of Python's type, so nothing would remove
+;;; its entry.  We keep it alive forever instead, by giving the
+;;; *MIRROR-INTO-PYTHON-TABLE* a reference of its own.
 (defmethod mirror-into-python ((class (eql (find-class 'lisp-type))))
-  (apply
-   #'make-pytype
-   "lang.lisp.LispType"
-   (+ +pyobject-type-size+ +pointer-size+)
-   0
-   '(:default :basetype :type-subclass)
-   :tp-base *type-pyobject*
-   :tp-doc (cffi:null-pointer)
-   :tp-finalize (cffi:callback __finalize__)
-   (pytype-attributes class)))
+  (let ((pytype
+          (apply
+           #'make-pytype
+           "lang.lisp.LispType"
+           (+ +pyobject-type-size+ +pointer-size+)
+           0
+           '(:default :basetype :type-subclass)
+           :tp-base *type-pyobject*
+           :tp-doc (cffi:null-pointer)
+           :tp-finalize (cffi:callback __finalize__)
+           (pytype-attributes class))))
+    (with-global-interpreter-lock-held
+      (pyobject-incref pytype))
+    pytype))
 
 (defmethod mirror-into-python ((class class))
   (let* ((name (class-name class))
@@ -190,7 +213,8 @@ vice versa.  Consumes one strong reference to PYTYPE."
                    (python-style-name (package-name (symbol-package name)))
                    (python-style-class-name (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
-    (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers)))))
+    (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers))))
+                     (metaclass (find-class 'lisp-type)))
       (loop for super in supers for index from 0 do
         (pytuple-setitem bases index (mirror-into-python super)))
       (apply
@@ -204,21 +228,28 @@ vice versa.  Consumes one strong reference to PYTYPE."
               (+ +pyobject-header-size+ +pointer-size+)))
        0
        '(:default :basetype)
+       :metaclass metaclass
        :tp-bases bases
        :tp-doc (cffi:null-pointer)
        (pytype-attributes class)))))
 
 (defmethod mirror-into-python ((class (eql (find-class 't))))
+  ;; Return a new reference, like all other methods.  Python's object type is
+  ;; static, so its table entry can't dangle.
+  (with-global-interpreter-lock-held
+    (pyobject-incref *object-pyobject*))
   *object-pyobject*)
 
 (defmethod mirror-into-python ((class (eql (find-class 'function))))
-  (with-pyobjects ((base (find-class 'lisp-object)))
+  (with-pyobjects ((base (find-class 'lisp-object))
+                   (metaclass (find-class 'lisp-type)))
     (apply
      #'make-pytype
      "lang.lisp.Function"
      (+ +pyobject-header-size+ +pointer-size+ +pointer-size+)
      0
      '(:default :basetype)
+     :metaclass metaclass
      :tp-base base
      :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
      :tp-doc (cffi:null-pointer)

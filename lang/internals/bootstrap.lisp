@@ -89,11 +89,24 @@ Python objects and Lisp objects, the Python objects are first converted to Lisp.
 
 ;;; Constants
 
+;;; We use the __basicsize__ of each type, because that is the size its
+;;; subtypes have to extend.  The size of the object itself, as returned by
+;;; sys.getsizeof, differs for types, because Python's builtin type is a
+;;; static type that is smaller than any heap type.
+
 (defconstant +pyobject-header-size+
-  (with-global-interpreter-lock-held (pyobject-sizeof *none-pyobject*)))
+  (with-global-interpreter-lock-held
+    (let ((pysize (pyobject-getattr-string *object-pyobject* "__basicsize__")))
+      (prog1 (pylong-as-long pysize)
+        (pyobject-decref pysize))))
+  "The size of instances of Python's object type in bytes.")
 
 (defconstant +pyobject-type-size+
-  (with-global-interpreter-lock-held (pyobject-sizeof *type-pyobject*)))
+  (with-global-interpreter-lock-held
+    (let ((pysize (pyobject-getattr-string *type-pyobject* "__basicsize__")))
+      (prog1 (pylong-as-long pysize)
+        (pyobject-decref pysize))))
+  "The size of heap types, the instances of Python's type, in bytes.")
 
 ;;; Touch
 
