@@ -9,7 +9,7 @@
 
 (defun truep (object)
   (with-pyobjects ((pyobject object))
-    (pyobject-truep pyobject)))
+    (|%PyObject_IsTrue| pyobject)))
 
 (defmacro python:as (&rest rest)
   (declare (ignore rest))
@@ -95,16 +95,16 @@
 
 (defun make-iterator (iterable)
   (with-pyobjects ((pyobject iterable))
-    (move-into-lisp (pyobject-iterator pyobject))))
+    (move-into-lisp (|%PyObject_GetIter| pyobject))))
 
 (defun iterator-next (iterator)
   (with-pyobjects ((pyiter iterator))
-    (let ((pynext (pyiter-next pyiter)))
+    (let ((pynext (|%PyIter_Next| pyiter)))
       (cond ((not (cffi:null-pointer-p pynext))
              (values (move-into-lisp pynext) t))
             ;; PyIter_Next returns NULL both on exhaustion and on error, and
             ;; only sets an exception in the latter case.
-            ((not (cffi:null-pointer-p (pyerr-occurred)))
+            ((pyerr-occurred-p)
              (python-error-handler))
             (t
              (values python:none nil))))))
@@ -143,7 +143,7 @@
 
 (defun python:not (object)
   (with-pyobjects ((pyobject object))
-    (if (pyobject-not pyobject)
+    (if (|%PyObject_Not| pyobject)
         python:True
         python:False)))
 

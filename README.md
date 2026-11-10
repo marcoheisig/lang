@@ -15,7 +15,7 @@ favorite package manager or build and install it yourself.
 
 ## Python
 
-Requires libpython3.11 or later in your library path.  To select a particular
+Requires libpython3.13 or later in your library path.  To select a particular
 python environment, put the following into your ```.sbclrc```:
 
 ```lisp
@@ -167,18 +167,12 @@ Write tests that perform various consistency checks.
 
 Write tests that detect performance regressions.
 
-### Metaclasses in Python 3.12+
+### Metaclasses
 
 Python 3.12 adds the C API function PyType_FromMetaclass, so we can finally
-specify the correct metaclasses of each Lisp class.  Do this.  Whatever
-solution we come up with should still be backward compatible to earlier
-versions of Python.
-
-### Support older versions of Python
-
-Right now we require at least Python 3.11, due to the C API functions we use.
-It would be nice to see whether those requirements could be lowered with some
-kludges and hacks.
+specify the correct metaclasses of each Lisp class.  Right now, the type of
+each mirrored Lisp class is lang.lisp.LispType.  Use the Python mirror of the
+Lisp class's metaclass instead.
 
 ### Documentation Mirroring
 

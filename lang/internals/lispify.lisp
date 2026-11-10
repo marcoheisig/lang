@@ -61,7 +61,7 @@ pointer."
   (let ((vector
           (make-array
            (with-pyobjects ((pylist list))
-             (pylist-size pylist))
+             (|%PyList_Size| pylist))
            :adjustable t
            :fill-pointer t)))
     (values
@@ -69,8 +69,7 @@ pointer."
      (lambda ()
        (with-pyobjects ((pylist list))
          (loop for position below (length vector)
-               ;; PyList_GetItem returns a borrowed reference.
-               for value = (mirror-into-lisp (pylist-getitem pylist position))
+               for value = (move-into-lisp (|%PyList_GetItemRef| pylist position))
                do (setf (aref vector position)
                         (convert-object strategy value))))))))
 
@@ -80,14 +79,14 @@ pointer."
   "Converts Python tuples to Lisp lists."
   (let ((list (make-list
                (with-pyobjects ((pytuple tuple))
-                 (pytuple-size pytuple)))))
+                 (|%PyTuple_Size| pytuple)))))
     (values
      list
      (lambda ()
        (with-pyobjects ((pytuple tuple))
          (loop for (cons) on list
                for position from 0
-               for value = (mirror-into-lisp (pytuple-getitem pytuple position))
+               for value = (mirror-into-lisp (|%PyTuple_GetItem| pytuple position))
                do (setf (car cons)
                         (convert-object strategy value))))))))
 
@@ -102,13 +101,15 @@ pointer."
        (with-pyobjects ((pydict dict)
                         ;; PyDict_Items returns a new reference to a list of
                         ;; (key, value) tuples.
-                        (pyitems (move-into-lisp (pydict-items pydict))))
-         (loop for position below (pylist-size pyitems)
-               for pyitem = (pylist-getitem pyitems position)
-               for key = (mirror-into-lisp (pytuple-getitem pyitem 0))
-               for value = (mirror-into-lisp (pytuple-getitem pyitem 1))
-               do (setf (gethash (convert-object strategy key) hash-table)
-                        (convert-object strategy value))))))))
+                        (pyitems (move-into-lisp (|%PyDict_Items| pydict))))
+         (loop for position below (|%PyList_Size| pyitems) do
+           (multiple-value-bind (key value)
+               (with-new-pyobjects ((pyitem (|%PyList_GetItemRef| pyitems position)))
+                 ;; PyTuple_GetItem returns borrowed references.
+                 (values (mirror-into-lisp (|%PyTuple_GetItem| pyitem 0))
+                         (mirror-into-lisp (|%PyTuple_GetItem| pyitem 1))))
+             (setf (gethash (convert-object strategy key) hash-table)
+                   (convert-object strategy value)))))))))
 
 (defmethod convert-object
     ((strategy lispify)

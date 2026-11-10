@@ -3,12 +3,12 @@
 (defun module-value (module attribute-name)
   (with-pyobjects ((pymodule module))
     (move-into-lisp
-     (pyobject-getattr-string pymodule attribute-name))))
+     (|%PyObject_GetAttrString| pymodule attribute-name))))
 
 (defun (setf module-value) (value module attribute-name)
   (with-pyobjects ((pyvalue value)
                    (pymodule module))
-    (pyobject-setattr-string pymodule attribute-name pyvalue)
+    (|%PyObject_SetAttrString| pymodule attribute-name pyvalue)
     value))
 
 (defun module-name (module)
@@ -22,7 +22,7 @@
   "Populate the package corresponding to each Python module."
   (with-pyobjects ((pymodule module)
                    ;; PyModule_GetDict returns a borrowed reference.
-                   (pydict (mirror-into-lisp (pymodule-dict pymodule))))
+                   (pydict (mirror-into-lisp (|%PyModule_GetDict| pymodule))))
     (let ((symbol-table (module-symbol-table module))
           (package (module-package module)))
       ;; Mirror all Python bindings to Lisp.
@@ -31,10 +31,12 @@
          #+(or)
          (format *trace-output* "Mirroring ~A to ~A.~%"
                  python-name lisp-name)
-         (let* ((pykey (pyobject-from-string python-name))
-                ;; PyDict_GetItem returns a borrowed reference.
-                (value (unwind-protect (mirror-into-lisp (pydict-getitem pydict pykey))
-                         (pyobject-decref pykey))))
+         (let ((value (with-new-pyobjects ((pykey (pyobject-from-string python-name)))
+                        (cffi:with-foreign-object (pyvalue-pointer :pointer)
+                          ;; PyDict_GetItemRef stores a new reference.
+                          (if (|%PyDict_GetItemRef| pydict pykey pyvalue-pointer)
+                              (move-into-lisp (cffi:mem-ref pyvalue-pointer :pointer))
+                              (error "Missing module attribute: ~A" python-name))))))
            (cond ((boundp lisp-name)
                   (unless (eq value (symbol-value lisp-name))
                     (warn "Multiple definitions of ~S." lisp-name)))
@@ -60,16 +62,16 @@
                           value))))))
        (bijection-a2b symbol-table))
       ;; Determine which symbols to export.
-      (if (pyobject-hasattr-string pymodule "__all__")
+      (if (|%PyObject_HasAttrStringWithError| pymodule "__all__")
           ;; If the module has an __all__ attribute, export the Lisp symbols
           ;; corresponding to the Python names therein.
           (with-pyobjects
-              ((pylist (move-into-lisp (pyobject-getattr-string pymodule "__all__"))))
-            (when (pyobject-typep pylist *list-pyobject*)
-              (let ((size (pylist-size pylist)))
+              ((pylist (move-into-lisp (|%PyObject_GetAttrString| pymodule "__all__"))))
+            (when (|%PyObject_IsInstance| pylist *list-pyobject*)
+              (let ((size (|%PyList_Size| pylist)))
                 (loop for index below size do
-                  (let ((pyitem (pylist-getitem pylist index)))
-                    (when (pyobject-typep pyitem *unicode-pyobject*)
+                  (with-new-pyobjects ((pyitem (|%PyList_GetItemRef| pylist index)))
+                    (when (|%PyObject_IsInstance| pyitem *unicode-pyobject*)
                       (let* ((python-name (string-from-pyobject pyitem))
                              (lisp-name (bijection-value symbol-table python-name)))
                         (export lisp-name package))))))))
@@ -103,11 +105,11 @@
 
 (with-pyobjects ((pysys *sys*)
                  (pystream *standard-output*))
-  (pyobject-setattr-string pysys "stdout" pystream))
+  (|%PyObject_SetAttrString| pysys "stdout" pystream))
 
 (with-pyobjects ((pysys *sys*)
                  (pystream *error-output*))
-  (pyobject-setattr-string pysys "stderr" pystream))
+  (|%PyObject_SetAttrString| pysys "stderr" pystream))
 
 (defclass descriptor ()
   ())

@@ -236,11 +236,23 @@
     (:use #:lang.python)
     #2#)
 
+  ;; The Lisp interface to the Python C API.  It contains a function |%PyFoo|
+  ;; for each C API function PyFoo that we use, which operates on raw PyObject
+  ;; pointers.  The hyphen ensures that the package name can't clash with the
+  ;; package of a mirrored Python module.
+  ;;
+  ;; We don't use DEFPACKAGE here, because the symbols of this package are
+  ;; exported by the definitions in foreign.lisp, and re-evaluating a
+  ;; DEFPACKAGE form with fewer exports signals a warning.
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+    (unless (find-package '#:lang.python.c-api)
+      (make-package '#:lang.python.c-api :use '())))
+
   (defpackage #:lang.internals
     (:local-nicknames
      (#:python #:lang.python)
      (#:python.builtins #:lang.python.builtins))
-    (:use #:closer-common-lisp)
+    (:use #:closer-common-lisp #:lang.python.c-api)
     #3=
     (:export
      ;; Auxiliary Functions

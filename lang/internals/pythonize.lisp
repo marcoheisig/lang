@@ -47,7 +47,7 @@
          (list
            (move-into-lisp
             (with-global-interpreter-lock-held
-                (pylist-new length)))))
+                (|%PyList_New| length)))))
     (values
      list
      (lambda ()
@@ -56,7 +56,7 @@
                for value = (convert-object strategy (elt vector position))
                ;; PyList_SetItem steals the strong reference returned by
                ;; MIRROR-INTO-PYTHON.
-               do (pylist-setitem pylist position (mirror-into-python value))))))))
+               do (|%PyList_SetItem| pylist position (mirror-into-python value))))))))
 
 (defmethod convert-object
     ((strategy pythonize)
@@ -66,7 +66,7 @@
          (tuple
            (move-into-lisp
             (with-global-interpreter-lock-held
-                (pytuple-new length)))))
+                (|%PyTuple_New| length)))))
     (values
      tuple
      (lambda ()
@@ -88,7 +88,7 @@
   (let* ((dict
            (move-into-lisp
             (with-global-interpreter-lock-held
-              (pydict-new)))))
+              (|%PyDict_New|)))))
     (values
      dict
      (lambda ()
@@ -97,7 +97,7 @@
           (lambda (key value)
             (with-pyobjects ((pykey (convert-object strategy key))
                              (pyvalue (convert-object strategy value)))
-              (pydict-setitem pydict pykey pyvalue)
+              (|%PyDict_SetItem| pydict pykey pyvalue)
               (values)))
           hash-table))))))
 

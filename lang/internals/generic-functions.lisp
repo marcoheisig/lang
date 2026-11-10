@@ -35,15 +35,15 @@ object."))
 
 (defun python-error-handler ()
   (with-global-interpreter-lock-held
-    (let ((pyerr (pyerr-get-raised-exception)))
+    (let ((pyerr (|%PyErr_GetRaisedException|)))
       (unless (cffi:null-pointer-p pyerr)
         (error (prog1 (move-into-lisp pyerr)
                  ;; Detect errors within error handling, but don't signal them
                  ;; and only report them to avoid infinite recursion.
-                 (let ((pyerr (pyerr-get-raised-exception)))
+                 (let ((pyerr (|%PyErr_GetRaisedException|)))
                    (unless (cffi:null-pointer-p pyerr)
-                     (pyerr-display-exception pyerr)
-                     (pyerr-clear)))))))))
+                     (|%PyErr_DisplayException| pyerr)
+                     (|%PyErr_Clear|)))))))))
 
 (defmacro define-pycallable (name lambda-list)
   `(progn
@@ -119,7 +119,7 @@ object."))
     (if (or (typep result 'python-object)
             (typep result 'python-exception))
         (mirror-into-python result)
-        (pybool-from-long (if result 1 0)))))
+        (|%PyBool_FromLong| (if result 1 0)))))
 
 ;;; Sequence and Mapping Methods
 
@@ -141,8 +141,9 @@ object."))
          sb-int:invalid-array-index-error)
       ()
       (with-global-interpreter-lock-held
-        (pyerr-set-none (mirror-into-python (find-class 'python:index-error)))
-        (cffi:null-pointer)))))
+        (with-new-pyobjects ((pytype (mirror-into-python (find-class 'python:index-error))))
+          (|%PyErr_SetNone| pytype)
+          (cffi:null-pointer))))))
 
 (cffi:defcallback __sq_getitem__ :pointer
     ((pyobject pyobject)

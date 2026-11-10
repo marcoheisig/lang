@@ -96,16 +96,16 @@ Python objects and Lisp objects, the Python objects are first converted to Lisp.
 
 (defconstant +pyobject-header-size+
   (with-global-interpreter-lock-held
-    (let ((pysize (pyobject-getattr-string *object-pyobject* "__basicsize__")))
-      (prog1 (pylong-as-long pysize)
-        (pyobject-decref pysize))))
+    (let ((pysize (|%PyObject_GetAttrString| *object-pyobject* "__basicsize__")))
+      (prog1 (|%PyLong_AsLong| pysize)
+        (|%Py_DecRef| pysize))))
   "The size of instances of Python's object type in bytes.")
 
 (defconstant +pyobject-type-size+
   (with-global-interpreter-lock-held
-    (let ((pysize (pyobject-getattr-string *type-pyobject* "__basicsize__")))
-      (prog1 (pylong-as-long pysize)
-        (pyobject-decref pysize))))
+    (let ((pysize (|%PyObject_GetAttrString| *type-pyobject* "__basicsize__")))
+      (prog1 (|%PyLong_AsLong| pysize)
+        (|%Py_DecRef| pysize))))
   "The size of heap types, the instances of Python's type, in bytes.")
 
 ;;; Touch
@@ -132,11 +132,11 @@ the PyObject's refcount."
     ;; reference count and checking whether it affects the current region.
     (loop for offset to 1024 do
       (let* ((increment 7)
-             (pyobject (pylist-new 0))
+             (pyobject (|%PyList_New| 0))
              (before (cffi:mem-ref pyobject :size offset)))
-        (loop repeat increment do (pyobject-incref pyobject))
+        (loop repeat increment do (|%Py_IncRef| pyobject))
         (let ((after (cffi:mem-ref pyobject :size offset)))
-          (loop repeat (1+ increment) do (pyobject-decref pyobject))
+          (loop repeat (1+ increment) do (|%Py_DecRef| pyobject))
           (when (= (+ before increment) after)
             (return offset))))
           finally
@@ -164,7 +164,7 @@ the PyObject's refcount."
   (let ((value (logand (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
                        +pyobject-refcount-immortal+)))
     (if (<= value 1)
-        (pyobject-decref pyobject)
+        (|%Py_DecRef| pyobject)
         (setf (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)
               (1- value)))))
 
@@ -174,16 +174,16 @@ the PyObject's refcount."
   ;; Locate the byte offset to the first item of a tuple by storing a known
   ;; object in a fresh tuple and searching for it.
   (with-global-interpreter-lock-held
-    (let ((pytuple (pytuple-new 1)))
-      (pyobject-incref *none-pyobject*)
-      (pytuple-setitem pytuple 0 *none-pyobject*)
+    (let ((pytuple (|%PyTuple_New| 1)))
+      (|%Py_IncRef| *none-pyobject*)
+      (|%PyTuple_SetItem| pytuple 0 *none-pyobject*)
       (prog1 (loop for offset from 0 to 64 by +pointer-size+
                    when (cffi:pointer-eq (cffi:mem-ref pytuple :pointer offset)
                                          *none-pyobject*)
                      return offset
                    finally
                       (error "Failed to determine the item offset of Python tuples."))
-        (pyobject-decref pytuple))))
+        (|%Py_DecRef| pytuple))))
   "The byte offset from the start of a Python tuple to its first item.")
 
 (defun pytuple-initialize-item (pytuple position pyvalue)
@@ -202,13 +202,13 @@ already referenced elsewhere.  Equivalent to the PyTuple_SET_ITEM macro."
 (defun string-from-pyobject (pyobject)
   "Returns a Lisp string with the same content as the supplied PyObject."
   (declare (pyobject pyobject))
-  (cffi:with-foreign-object (size-pointer :size)
+  (cffi:with-foreign-object (size-pointer :ssize)
     (let* ((char-pointer
+             ;; The UTF-8 buffer is owned by PYOBJECT, which outlives this
+             ;; function.
              (with-global-interpreter-lock-held
-               (pyunicode-as-utf8-string pyobject size-pointer)))
-           (nbytes (if (cffi:null-pointer-p char-pointer)
-                       (error "Failed to convert string from Python to Lisp.")
-                       (cffi:mem-ref size-pointer :size)))
+               (|%PyUnicode_AsUTF8AndSize| pyobject size-pointer)))
+           (nbytes (cffi:mem-ref size-pointer :ssize))
            (octets (make-array nbytes :element-type '(unsigned-byte 8))))
       (loop for index below nbytes do
         (setf (aref octets index)
@@ -228,19 +228,15 @@ already referenced elsewhere.  Equivalent to the PyTuple_SET_ITEM macro."
               (aref octets index)))
       ;; Passing NULL as the error handler name selects 'strict'.
       (with-global-interpreter-lock-held
-        (pyunicode-decode-utf8 char-pointer nbytes (cffi:null-pointer))))))
+        (|%PyUnicode_DecodeUTF8| char-pointer nbytes (cffi:null-pointer))))))
 
 ;;; Eval
 
 (defun python-eval (string)
+  "Evaluate STRING as Python code and return a new reference to the result."
   (with-global-interpreter-lock-held
-    (let* ((main (pyimport-import-module "__main__"))
-           (globals (pyobject-getattr-string main "__dict__"))
-           (locals (pydict-new))
-           (code (python-compile-string string "bootstrap.lisp" +py-single-input+))
-           (result (python-eval-code code globals locals)))
-      (prog1 result
-        (pyobject-decref main)
-        (pyobject-decref globals)
-        (pyobject-decref locals)
-        (pyobject-decref code)))))
+    (with-new-pyobjects ((main (|%PyImport_ImportModule| "__main__"))
+                         (globals (|%PyObject_GetAttrString| main "__dict__"))
+                         (locals (|%PyDict_New|))
+                         (code (|%Py_CompileString| string "bootstrap.lisp" +py-single-input+)))
+      (|%PyEval_EvalCode| code globals locals))))

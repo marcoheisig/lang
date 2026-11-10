@@ -14,10 +14,10 @@
 
 (defmethod lispify-number ((python-object python:object))
   (with-pyobjects ((pyobject python-object))
-    (cond ((pyobject-hasattr-string pyobject "__int__")
-           (move-into-lisp (pynumber-long pyobject)))
-          ((pyobject-hasattr-string pyobject "__float__")
-           (move-into-lisp (pynumber-float pyobject)))
+    (cond ((|%PyObject_HasAttrStringWithError| pyobject "__int__")
+           (move-into-lisp (|%PyNumber_Long| pyobject)))
+          ((|%PyObject_HasAttrStringWithError| pyobject "__float__")
+           (move-into-lisp (|%PyNumber_Float| pyobject)))
           (t
            (call-next-method)))))
 
@@ -65,7 +65,7 @@
 (defmethod __lt__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :lt))))
+     (|%PyObject_RichCompare| a b :lt))))
 
 (defmethod __le__ ((a real) (b real))
   (<= a b))
@@ -76,7 +76,7 @@
 (defmethod __le__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :le))))
+     (|%PyObject_RichCompare| a b :le))))
 
 (defmethod __eq__ ((a number) (b number))
   (= a b))
@@ -87,7 +87,7 @@
 (defmethod __eq__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :eq))))
+     (|%PyObject_RichCompare| a b :eq))))
 
 (defmethod __ne__ ((a number) (b number))
   (/= a b))
@@ -98,7 +98,7 @@
 (defmethod __ne__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :ne))))
+     (|%PyObject_RichCompare| a b :ne))))
 
 (defmethod __gt__ ((a real) (b real))
   (> a b))
@@ -109,7 +109,7 @@
 (defmethod __gt__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :gt))))
+     (|%PyObject_RichCompare| a b :gt))))
 
 (defmethod __ge__ ((a real) (b real))
   (>= a b))
@@ -120,7 +120,7 @@
 (defmethod __ge__ ((a python-object) (b python-object))
   (with-pyobjects ((a a) (b b))
     (move-into-lisp
-     (pyobject-richcompare a b :ge))))
+     (|%PyObject_RichCompare| a b :ge))))
 
 (defmethod __hash__ ((object t))
   (let* ((hash (sxhash object))
@@ -130,14 +130,14 @@
 
 (defmethod __hash__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
-    (pyobject-hash pyobject)))
+    (|%PyObject_Hash| pyobject)))
 
 (defmethod __len__ ((sequence sequence))
   (length sequence))
 
 (defmethod __len__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
-    (pyobject-size pyobject)))
+    (|%PyObject_Size| pyobject)))
 
 (defmethod __getitem__ ((sequence sequence) index)
   (elt sequence index))
@@ -145,19 +145,19 @@
 (defmethod __getitem__ ((python-object python-object) (index integer))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pysequence-getitem pyobject index))))
+     (|%PySequence_GetItem| pyobject index))))
 
 (defmethod __getitem__ ((python-object python-object) (index string))
   (with-pyobjects ((pyobject python-object)
                    (pystr (python-string-from-lisp-string index)))
     (move-into-lisp
-     (pyobject-getitem pyobject pystr))))
+     (|%PyObject_GetItem| pyobject pystr))))
 
 (defmethod __getitem__ ((python-object python-object) (index python-object))
   (with-pyobjects ((pyobject python-object)
                    (pyindex index))
     (move-into-lisp
-     (pyobject-getitem pyobject pyindex))))
+     (|%PyObject_GetItem| pyobject pyindex))))
 
 (defmethod __getitem__ ((hash-table hash-table) key)
   (gethash key hash-table))
@@ -172,13 +172,13 @@
 (defmethod __setitem__ ((python-object python-object) (index integer) value)
   (with-pyobjects ((pyobject python-object)
                    (pyvalue value))
-    (pysequence-setitem pyobject index pyvalue)))
+    (|%PySequence_SetItem| pyobject index pyvalue)))
 
 (defmethod __setitem__ ((python-object python-object) (index string) value)
   (with-pyobjects ((pyobject python-object)
                    (pystr (python-string-from-lisp-string index))
                    (pyvalue value))
-    (pyobject-setitem pyobject pystr pyvalue)))
+    (|%PyObject_SetItem| pyobject pystr pyvalue)))
 
 (remove-method
  (function  __setitem__)
@@ -191,7 +191,7 @@
   (with-pyobjects ((pyobject python-object)
                    (pyindex index)
                    (pyvalue value))
-    (pyobject-setitem pyobject pyindex pyvalue)))
+    (|%PyObject_SetItem| pyobject pyindex pyvalue)))
 
 (defmethod __setitem__ ((hash-table hash-table) key value)
   (setf (gethash key hash-table) value))
@@ -216,7 +216,7 @@
 (defmethod __contains__ ((python-object python-object) value)
   (with-pyobjects ((pyobject python-object)
                    (pyvalue value))
-    (pysequence-contains pyobject pyvalue)))
+    (|%PySequence_Contains| pyobject pyvalue)))
 
 (defmethod __abs__ ((number number))
   (abs number))
@@ -224,7 +224,7 @@
 (defmethod __abs__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-absolute pyobject))))
+     (|%PyNumber_Absolute| pyobject))))
 
 (defmethod __add__ ((a number) (b number))
   (+ a b))
@@ -235,7 +235,7 @@
 (defmethod __add__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-add pya pyb))))
+     (|%PyNumber_Add| pya pyb))))
 
 (defmethod __and__ ((a number) (b number))
   (logand a b))
@@ -246,14 +246,14 @@
 (defmethod __and__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-and pya pyb))))
+     (|%PyNumber_And| pya pyb))))
 
 (defmethod __bool__ (object)
   object)
 
 (defmethod __bool__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
-    (if (pyobject-truep pyobject)
+    (if (|%PyObject_IsTrue| pyobject)
         python:true
         python:false)))
 
@@ -270,7 +270,7 @@
 (defmethod __float__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-float pyobject))))
+     (|%PyNumber_Float| pyobject))))
 
 (defmethod __floordiv__ ((a real) (b real))
   (floor a b))
@@ -281,7 +281,7 @@
 (defmethod __floordiv__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-floor-divide pya pyb))))
+     (|%PyNumber_FloorDivide| pya pyb))))
 
 (defmethod __index__ ((integer integer))
   (__int__ integer))
@@ -289,7 +289,7 @@
 (defmethod __index__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-index pyobject))))
+     (|%PyNumber_Index| pyobject))))
 
 #+(or)
 (defmethod __iadd__ (a b)
@@ -345,7 +345,7 @@
 (defmethod __int__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-long pyobject))))
+     (|%PyNumber_Long| pyobject))))
 
 (defmethod __invert__ ((integer integer))
   (lognot integer))
@@ -353,7 +353,7 @@
 (defmethod __invert__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-invert pyobject))))
+     (|%PyNumber_Invert| pyobject))))
 
 (defmethod __lshift__ ((integer integer) (count integer))
   (ash integer count))
@@ -364,7 +364,7 @@
 (defmethod __lshift__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-lshift pya pyb))))
+     (|%PyNumber_Lshift| pya pyb))))
 
 (defmethod __mul__ ((a number) (b number))
   (* a b))
@@ -375,7 +375,7 @@
 (defmethod __mul__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-multiply pya pyb))))
+     (|%PyNumber_Multiply| pya pyb))))
 
 (defmethod __neg__ ((number number))
   (- number))
@@ -383,7 +383,7 @@
 (defmethod __neg__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-negative pyobject))))
+     (|%PyNumber_Negative| pyobject))))
 
 (defmethod __or__ ((a integer) (b integer))
   (logior a b))
@@ -394,7 +394,7 @@
 (defmethod __or__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-or pya pyb))))
+     (|%PyNumber_Or| pya pyb))))
 
 (defmethod __pos__ ((number number))
   (+ number))
@@ -402,7 +402,7 @@
 (defmethod __pos__ ((python-object python-object))
   (with-pyobjects ((pyobject python-object))
     (move-into-lisp
-     (pynumber-positive pyobject))))
+     (|%PyNumber_Positive| pyobject))))
 
 #+(or)
 (defmethod __pow__ ((a number) (b number) c)
@@ -417,7 +417,7 @@
 (defmethod __mod__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-remainder pya pyb))))
+     (|%PyNumber_Remainder| pya pyb))))
 
 (defmethod __rshift__ ((integer integer) (count integer))
   (ash integer (- count)))
@@ -428,7 +428,7 @@
 (defmethod __rshift__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-rshift pya pyb))))
+     (|%PyNumber_Rshift| pya pyb))))
 
 (defmethod __sub__ ((a number) (b number))
   (- a b))
@@ -439,7 +439,7 @@
 (defmethod __sub__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-subtract pya pyb))))
+     (|%PyNumber_Subtract| pya pyb))))
 
 (defmethod __truediv__ ((a number) (b number))
   (/ a b))
@@ -450,7 +450,7 @@
 (defmethod __truediv__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-true-divide pya pyb))))
+     (|%PyNumber_TrueDivide| pya pyb))))
 
 (defmethod __xor__ ((a integer) (b integer))
   (logxor a b))
@@ -461,11 +461,11 @@
 (defmethod __xor__ ((a python-object) (b python-object))
   (with-pyobjects ((pya a) (pyb b))
     (move-into-lisp
-     (pynumber-xor pya pyb))))
+     (|%PyNumber_Xor| pya pyb))))
 
 (defmethod print-object ((python-object python-object) stream)
   (with-pyobjects ((pyobject python-object)
-                   (pyrepr (move-into-lisp (pyobject-repr pyobject))))
+                   (pyrepr (move-into-lisp (|%PyObject_Repr| pyobject))))
     (write-string (string-from-pyobject pyrepr) stream)))
 
 (defmethod print-object ((type python-class) stream)
@@ -491,12 +491,12 @@
   (print-unreadable-object (exception stream :type t)
     (with-pyobjects ((pyexception exception))
       (format stream "~A~%~A"
-              (move-into-lisp (pyexception-get-args pyexception))
-              (move-into-lisp (pyexception-get-traceback pyexception)))))
+              (move-into-lisp (|%PyException_GetArgs| pyexception))
+              (move-into-lisp (|%PyException_GetTraceback| pyexception)))))
   (with-global-interpreter-lock-held
     (with-place-rebound ((python-getattr *sys* (python-string-from-lisp-string "stderr"))
                          stream)
-      (pyerr-display-exception
+      (|%PyErr_DisplayException|
        (python-object-pyobject exception)))))
 
 (defmethod documentation ((python-object python-object) (doc-type (eql 't)))

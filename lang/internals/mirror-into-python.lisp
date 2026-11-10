@@ -23,14 +23,14 @@ vice versa.  Consumes one strong reference to PYTYPE."
                  condition-class))
           ((pyobject-eq registered-pytype pytype)
            (with-global-interpreter-lock-held
-             (pyobject-decref pytype)))
+             (|%Py_DecRef| pytype)))
           (t
            (error "Attempt to mirror two Python types as the condition ~S."
                   (class-name condition-class)))))
   condition-class)
 
 (with-global-interpreter-lock-held
-  (pyobject-incref *base-exception-pyobject*)
+  (|%Py_IncRef| *base-exception-pyobject*)
   (register-condition-class
    (find-class 'python:base-exception)
    *base-exception-pyobject*))
@@ -38,7 +38,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
 (defmethod mirror-into-python :around ((python-object python-object))
   (let ((pyobject (python-object-pyobject python-object)))
     (with-global-interpreter-lock-held
-      (pyobject-incref pyobject))
+      (|%Py_IncRef| pyobject))
     ;; Prevent the mirror object from being cleaned up before the PyObject
     ;; refcount has been incremented.
     (touch python-object)
@@ -47,7 +47,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
 (defmethod mirror-into-python :around ((python-exception python-exception))
   (let ((pyobject (python-object-pyobject python-exception)))
     (with-global-interpreter-lock-held
-      (pyobject-incref pyobject))
+      (|%Py_IncRef| pyobject))
     ;; Prevent the mirror object from being cleaned up before the PyObject
     ;; refcount has been incremented.
     (touch python-exception)
@@ -62,7 +62,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
     (multiple-value-bind (pyobject presentp)
         (gethash object *mirror-into-python-table*)
       (if presentp
-          (progn (pyobject-incref pyobject)
+          (progn (|%Py_IncRef| pyobject)
                  pyobject)
           (let ((new-pyobject (call-next-method)))
             ;; Creating the mirror may run Python code, which may temporarily
@@ -71,8 +71,8 @@ vice versa.  Consumes one strong reference to PYTYPE."
             (multiple-value-bind (pyobject presentp)
                 (gethash object *mirror-into-python-table*)
               (cond (presentp
-                     (pyobject-incref pyobject)
-                     (pyobject-decref new-pyobject)
+                     (|%Py_IncRef| pyobject)
+                     (|%Py_DecRef| new-pyobject)
                      pyobject)
                     (t
                      (setf (gethash object *mirror-into-python-table*)
@@ -83,7 +83,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
 
 (defmethod mirror-into-python ((object t))
   (with-pyobjects ((pytype (class-of object)))
-    (pyobject-call-no-args pytype)))
+    (|%PyObject_CallNoArgs| pytype)))
 
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
@@ -103,15 +103,15 @@ vice versa.  Consumes one strong reference to PYTYPE."
      (kwargs pyobject))
   (with-global-interpreter-lock-held
     (let ((fn (mirror-into-lisp callable))
-          (nargs (pytuple-size args))
+          (nargs (|%PyTuple_Size| args))
           (nkwargs
             (if (cffi:null-pointer-p kwargs)
                 0
-                (pydict-size kwargs))))
+                (|%PyDict_Size| kwargs))))
       (assert (functionp fn))
       (flet ((arg (index)
                (mirror-into-lisp
-                (pytuple-getitem args index))))
+                (|%PyTuple_GetItem| args index))))
         (mirror-into-python
          (if (zerop nkwargs)
              (case nargs
@@ -195,7 +195,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
            :tp-finalize (cffi:callback __finalize__)
            (pytype-attributes class))))
     (with-global-interpreter-lock-held
-      (pyobject-incref pytype))
+      (|%Py_IncRef| pytype))
     pytype))
 
 (defmethod mirror-into-python ((class class))
@@ -213,31 +213,34 @@ vice versa.  Consumes one strong reference to PYTYPE."
                    (python-style-name (package-name (symbol-package name)))
                    (python-style-class-name (symbol-name name)))))
     (declare (ignore metaclass)) ;; TODO
-    (with-pyobjects ((bases (move-into-lisp (pytuple-new (length supers))))
-                     (metaclass (find-class 'lisp-type)))
-      (loop for super in supers for index from 0 do
-        (pytuple-setitem bases index (mirror-into-python super)))
-      (apply
-       #'make-pytype
-       type-name
-       (cond (classp
-              (+ +pyobject-type-size+ +pointer-size+))
-             ((subtypep class 'function)
-              (+ +pyobject-header-size+ +pointer-size+ +pointer-size+))
-             (t
-              (+ +pyobject-header-size+ +pointer-size+)))
-       0
-       '(:default :basetype)
-       :metaclass metaclass
-       :tp-bases bases
-       :tp-doc (cffi:null-pointer)
-       (pytype-attributes class)))))
+    (with-pyobjects ((metaclass (find-class 'lisp-type)))
+      (with-new-pyobjects ((bases (|%PyTuple_New| (length supers))))
+        ;; PyTuple_SetItem requires that we hold the only reference to the
+        ;; tuple, and steals the strong reference returned by
+        ;; MIRROR-INTO-PYTHON.
+        (loop for super in supers for index from 0 do
+          (|%PyTuple_SetItem| bases index (mirror-into-python super)))
+        (apply
+         #'make-pytype
+         type-name
+         (cond (classp
+                (+ +pyobject-type-size+ +pointer-size+))
+               ((subtypep class 'function)
+                (+ +pyobject-header-size+ +pointer-size+ +pointer-size+))
+               (t
+                (+ +pyobject-header-size+ +pointer-size+)))
+         0
+         '(:default :basetype)
+         :metaclass metaclass
+         :tp-bases bases
+         :tp-doc (cffi:null-pointer)
+         (pytype-attributes class))))))
 
 (defmethod mirror-into-python ((class (eql (find-class 't))))
   ;; Return a new reference, like all other methods.  Python's object type is
   ;; static, so its table entry can't dangle.
   (with-global-interpreter-lock-held
-    (pyobject-incref *object-pyobject*))
+    (|%Py_IncRef| *object-pyobject*))
   *object-pyobject*)
 
 (defmethod mirror-into-python ((class (eql (find-class 'function))))
@@ -251,7 +254,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
      '(:default :basetype)
      :metaclass metaclass
      :tp-base base
-     :tp-descr-get (pytype-getslot *pyfunction-pyobject* :tp-descr-get)
+     :tp-descr-get (|%PyType_GetSlot| *pyfunction-pyobject* :tp-descr-get)
      :tp-doc (cffi:null-pointer)
      :tp-call (cffi:callback __call__)
      (pytype-attributes class))))
@@ -322,7 +325,7 @@ vice versa.  Consumes one strong reference to PYTYPE."
   (let ((stream (mirror-into-lisp pystream))
         (string (string-from-pyobject pystr)))
     (write-string string stream)
-    (pylong-from-long (length string))))
+    (|%PyLong_FromLong| (length string))))
 
 (defmethod pytype-attributes append ((stream-class (eql (find-class 'stream))))
   (let* ((nmethods 1)

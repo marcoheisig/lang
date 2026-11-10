@@ -5,7 +5,7 @@
 (defparameter *inspect*
   (with-global-interpreter-lock-held
     (move-into-lisp
-     (pyimport-import-module "inspect"))))
+     (|%PyImport_ImportModule| "inspect"))))
 
 (defun inspect-lambda-list-deriver (pycallable)
   (error 'unable-to-derive-pycallable-lambda-list))
@@ -46,32 +46,32 @@
                        (pyanyargs anyargs)
                        (pydefaults defaults)
                        (pykwargs kwargs))
-        (let* ((nposargs (pylist-size pyposargs))
-               (nanyargs (pylist-size pyanyargs))
-               (ndefaults (pylist-size pydefaults))
-               (nkwargs (pylist-size pykwargs))
+        (let* ((nposargs (|%PyList_Size| pyposargs))
+               (nanyargs (|%PyList_Size| pyanyargs))
+               (ndefaults (|%PyList_Size| pydefaults))
+               (nkwargs (|%PyList_Size| pykwargs))
                (nrequired (- (+ nposargs nanyargs) ndefaults))
                ;; Group all argument names into those that are strictly required
                ;; and those that go into the rest portion of the lambda list.
                (required '())
                (optional '()))
-          (flet ((argname (pyarg)
-                   (string-from-pyobject
-                    (pyobject-getattr-string pyarg "arg"))))
+          ;; ARG is a Python object of type ast.arg.
+          (flet ((argname (arg)
+                   (lisp-string-from-python-string (getattr arg "arg"))))
             (unless (eql kwarg python:none)
               (push (argname kwarg) optional))
             (unless (eql vararg python:none)
               (push (argname vararg) optional))
             (loop for index from (- nkwargs 1) downto 0 do
-              (push (argname (pylist-getitem pykwargs index))
+              (push (argname (move-into-lisp (|%PyList_GetItemRef| pykwargs index)))
                     optional))
             (loop for index from (- nanyargs 1) downto 0 do
-              (let ((argname (argname (pylist-getitem pyanyargs index))))
+              (let ((argname (argname (move-into-lisp (|%PyList_GetItemRef| pyanyargs index)))))
                 (if (< index (- nrequired nposargs))
                     (push argname required)
                     (push argname optional))))
             (loop for index from (- nposargs 1) downto 0 do
-              (let ((argname (argname (pylist-getitem pyposargs index))))
+              (let ((argname (argname (move-into-lisp (|%PyList_GetItemRef| pyposargs index)))))
                 (if (< index nrequired)
                     (push argname required)
                     (push argname optional)))))
