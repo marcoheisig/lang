@@ -84,7 +84,7 @@ pointer."
      list
      (lambda ()
        (with-pyobjects ((pytuple tuple))
-         (loop for (cons) on list
+         (loop for cons on list
                for position from 0
                for value = (mirror-into-lisp (|%PyTuple_GetItem| pytuple position))
                do (setf (car cons)
