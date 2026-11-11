@@ -23,6 +23,7 @@
    (:file "smoke")
    (:file "identity")
    (:file "conversion")
+   (:file "calls")
    (:file "refcount")
    (:file "c-api"))
   :perform (test-op (operation component)

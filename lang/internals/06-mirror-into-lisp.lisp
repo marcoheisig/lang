@@ -27,20 +27,31 @@ at any time if necessary.")
         value
         (make-mirror-object :borrowed-reference pyobject))))
 
-(defmethod shared-initialize :after
+;;; Each mirror owns one reference to its PyObject, so these methods run
+;;; exactly once per mirror, i.e., on initialization but not on
+;;; reinitialization.
+
+(defmethod initialize-instance :after
     ((python-object python-object)
-     (slot-names t)
      &key pyobject &allow-other-keys)
-  "For a supplied Python object, set its funcallable instance function, define a
-finalizer for it, and register it in the mirror-into-lisp table."
+  "For a supplied Python object, define a finalizer for it, register it in the
+mirror-into-lisp table, and set its funcallable instance function."
+  ;; Install a trivial instance function so that the object is fully
+  ;; initialized.
   (set-funcallable-instance-function
    python-object
-   (lisp-function-from-pycallable pyobject))
-  (alexandria:ensure-gethash
-   (pyobject-address pyobject)
-   *mirror-into-lisp-table*
-   (prog1 python-object
-     (register-python-object-finalizer pyobject python-object))))
+   (trivial-pycallable-instance-function-generator pyobject))
+  ;; Install the finalizer.
+  (register-python-object-finalizer pyobject python-object)
+  ;; Register the mirror before deriving the full instance function, because
+  ;; the derivers might also use the mirroring machinery.
+  (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+        python-object)
+  ;; Derive the actual instance function, which typically has a more
+  ;; descriptive lambda list than the trivial one.
+  (set-funcallable-instance-function
+   python-object
+   (pycallable-instance-function pyobject)))
 
 (define-condition unable-to-derive-pycallable-lambda-list (serious-condition)
   ())
@@ -48,24 +59,43 @@ finalizer for it, and register it in the mirror-into-lisp table."
 (defvar *pycallable-lambda-list-derivers* '()
   "A list of function designators that are called one after the other on a pycallable to derive a
 suitable lambda list.  Each function may throw :failure to transfer control to
-the next one.")
+the next one.  They are only called on callable objects, after the mirror of
+the pycallable has been registered.")
 
 (defun pycallable-lambda-list (pycallable)
   "Returns a lambda list for the pycallable that consists purely of required
 arguments and possibly a rest argument."
   (the (values list &optional)
-       (loop for fn in *pycallable-lambda-list-derivers* do
-         (handler-case (return (funcall fn pycallable))
-           (unable-to-derive-pycallable-lambda-list () ()))
-             finally (return '(&rest rest)))))
+       (if (not (with-global-interpreter-lock-held
+                  (|%PyCallable_Check| pycallable)))
+           '(&rest args)
+           (loop for fn in *pycallable-lambda-list-derivers* do
+             (handler-case (return (funcall fn pycallable))
+               (unable-to-derive-pycallable-lambda-list () ()))
+                 finally (return '(&rest args))))))
 
-;; We'll later redefine lisp-function-from-pycallable to generate more detailed
-;; lambda lists, so we declare it as notinline.
-(declaim (notinline lisp-function-from-pycallable))
-(defun lisp-function-from-pycallable (pycallable)
-  (let* ((lambda-list (pycallable-lambda-list pycallable))
-         (restp (position '&rest lambda-list)))
-    (funcall
+(defvar *pycallable-instance-function-generators*
+  (make-hash-table :test #'equal :synchronized t)
+  "A hash table mapping from lambda lists to functions that take a pycallable
+and return an instance function with that lambda list that applies the
+pycallable to its arguments.
+
+Compiling is far more expensive than mirroring an object, and many
+pycallables share a lambda list, so we compile once per lambda list.")
+
+(defun trivial-pycallable-instance-function-generator (pycallable)
+  (lambda (&rest args)
+    (declare (dynamic-extent args))
+    (pyapply pycallable args)))
+
+(setf (gethash '(&rest args) *pycallable-instance-function-generators*)
+      #'trivial-pycallable-instance-function-generator)
+
+(defun pycallable-instance-function-generator (lambda-list)
+  (alexandria:ensure-gethash
+   lambda-list
+   *pycallable-instance-function-generators*
+   (let ((restp (position '&rest lambda-list)))
      (compile
       nil
       `(lambda (pycallable)
@@ -75,18 +105,21 @@ arguments and possibly a rest argument."
                             `(list* ,@(subseq lambda-list 0 restp)
                                     ,(elt lambda-list (1+ restp))))))
              (declare (dynamic-extent args))
-             (pyapply pycallable args)))))
-     pycallable)))
+             (pyapply pycallable args))))))))
 
-(defmethod shared-initialize :after
+(defun pycallable-instance-function (pycallable)
+  (funcall (pycallable-instance-function-generator
+            (pycallable-lambda-list pycallable))
+           pycallable))
+
+(defmethod initialize-instance :after
     ((python-exception python-exception)
-     (slot-names t)
      &key pyobject &allow-other-keys)
-  (alexandria:ensure-gethash
-   (pyobject-address pyobject)
-   *mirror-into-lisp-table*
-   (prog1 python-exception
-     (register-python-object-finalizer pyobject python-exception))))
+  "For a supplied Python exception, define a finalizer for it and register it
+in the mirror-into-lisp table."
+  (register-python-object-finalizer pyobject python-exception)
+  (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
+        python-exception))
 
 (defun register-python-object-finalizer (pyobject python-object)
   (trivial-garbage:finalize
