@@ -79,6 +79,8 @@ The ASDF systems build on each other in this order:
   `(C-NAME ARGUMENT-TYPES RESULT-TYPE)`.  Each row defines `|%C-NAME|` in the
   package `lang.python.c-api`; these operate on raw pointers and must be
   called with the GIL held.
+- `15-c-api.lisp`: the function `|C-NAME|` for most of these, which acquires
+  the GIL itself and takes and returns mirror objects.
 - `06-mirror-into-lisp.lisp`, `07-mirror-into-python.lisp`: creating the
   object in one language that stands for an object of the other.
 - `01-naming.lisp`: translating identifiers between the languages.
