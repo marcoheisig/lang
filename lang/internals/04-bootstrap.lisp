@@ -238,5 +238,5 @@ already referenced elsewhere.  Equivalent to the PyTuple_SET_ITEM macro."
     (with-new-pyobjects ((main (|%PyImport_ImportModule| "__main__"))
                          (globals (|%PyObject_GetAttrString| main "__dict__"))
                          (locals (|%PyDict_New|))
-                         (code (|%Py_CompileString| string "bootstrap.lisp" +py-single-input+)))
+                         (code (|%Py_CompileString| string "04-bootstrap.lisp" +py-single-input+)))
       (|%PyEval_EvalCode| code globals locals))))

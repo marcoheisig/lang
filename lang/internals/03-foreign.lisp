@@ -156,7 +156,7 @@
 ;;;  (C-NAME ARGUMENT-TYPES RESULT-TYPE)
 ;;;
 ;;; The argument and result types describe the ownership of each PyObject
-;;; reference, see pyobject.lisp.  We only list functions with simple and
+;;; reference, see 02-pyobject.lisp.  We only list functions with simple and
 ;;; thread-safe semantics, e.g., PyDict_GetItemRef instead of PyDict_GetItem.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)

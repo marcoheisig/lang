@@ -242,7 +242,7 @@
   ;; package of a mirrored Python module.
   ;;
   ;; We don't use DEFPACKAGE here, because the symbols of this package are
-  ;; exported by the definitions in foreign.lisp, and re-evaluating a
+  ;; exported by the definitions in 03-foreign.lisp, and re-evaluating a
   ;; DEFPACKAGE form with fewer exports signals a warning.
   (eval-when (:compile-toplevel :load-toplevel :execute)
     (unless (find-package '#:lang.python.c-api)
@@ -258,7 +258,7 @@
      ;; Auxiliary Functions
      #:hasattr
      #:getattr
-     ;; convert.lisp
+     ;; 12-convert.lisp
      #:convert
      #:convert-object
      #:convert-object-to-dummy
@@ -271,12 +271,12 @@
      #:convert-once
      #:convert-tree
      #:convert-graph
-     ;; lispify.lisp
+     ;; 13-lispify.lisp
      #:lispify
      #:lispify-once
      #:lispify-tree
      #:lispify-graph
-     ;; pythonize.lisp
+     ;; 14-pythonize.lisp
      #:pythonize
      #:pythonize-once
      #:pythonize-tree

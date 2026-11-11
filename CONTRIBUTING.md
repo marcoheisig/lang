@@ -24,7 +24,7 @@ to use it, see the [README](README.md).
 
 ## Selecting the Python Interpreter
 
-`lang/internals/foreign.lisp` loads the first of `libpython3.14` and
+`lang/internals/03-foreign.lisp` loads the first of `libpython3.14` and
 `libpython3.13` that CFFI can find, then initializes it unless it is already
 running.  To use a particular installation (a venv, conda environment, or
 uv-managed Python), add its `lib/` directory to
@@ -75,15 +75,15 @@ The ASDF systems build on each other in this order:
 `lang.internals` is `:serial`, so its files load in the order listed in
 `lang.internals.asd`.  The most important ones:
 
-- `foreign.lisp`: every Python C API function lang uses, in one table of
+- `03-foreign.lisp`: every Python C API function lang uses, in one table of
   `(C-NAME ARGUMENT-TYPES RESULT-TYPE)`.  Each row defines `|%C-NAME|` in the
   package `lang.python.c-api`; these operate on raw pointers and must be
   called with the GIL held.
-- `mirror-into-lisp.lisp`, `mirror-into-python.lisp`: creating the object in
-  one language that stands for an object of the other.
-- `naming.lisp`: translating identifiers between the languages.
-- `lispify.lisp`, `pythonize.lisp`, `convert.lisp`: value conversion.
-- `lambda-lists.lisp` is currently disabled (`#+(or)` in the `.asd`).  It is
+- `06-mirror-into-lisp.lisp`, `07-mirror-into-python.lisp`: creating the
+  object in one language that stands for an object of the other.
+- `01-naming.lisp`: translating identifiers between the languages.
+- `12-convert.lisp`, `13-lispify.lisp`, `14-pythonize.lisp`: value conversion.
+- `10-lambda-lists.lisp` is currently disabled (`#+(or)` in the `.asd`).  It is
   the only user of the `typeshed_client` Python dependency.
 
 The Python side lives in `lang/lang.py` (a meta path finder that dispatches
@@ -105,7 +105,7 @@ changes that break them need a discussion first.
 - **Every mirror is finalizable.**  All types that mirror Lisp classes are
   instances of `LispType`, so finalization can remove their table entries.
 - **Lookup and incref are atomic** under the GIL.
-- **Reference ownership is explicit.**  C API declarations in `foreign.lisp`
+- **Reference ownership is explicit.**  C API declarations in `03-foreign.lisp`
   use the types `pyobject` (borrowed argument), `stolen-pyobject`,
   `new-pyobject`, `borrowed-pyobject`, and their `-or-null` variants.  Use
   `with-new-pyobjects` / `with-pyobjects` for temporaries so that references
