@@ -468,11 +468,23 @@
                    (pyrepr (move-into-lisp (|%PyObject_Repr| pyobject))))
     (write-string (string-from-pyobject pyrepr) stream)))
 
-(defmethod print-object ((type python-class) stream)
-  (print-unreadable-object (type stream)
+(defun print-python-class (class stream)
+  (print-unreadable-object (class stream)
     (format stream "~S ~S"
-            (class-name (class-of type))
-            (class-name type))))
+            ;; Print the mirror of the Python metaclass, not the Lisp
+            ;; metaclass that implements it.
+            (let ((metaclass (class-of class)))
+              (if (member (class-name metaclass)
+                          '(python-class non-funcallable-type funcallable-type))
+                  'python:type
+                  (class-name metaclass)))
+            (class-name class))))
+
+(defmethod print-object ((class python:type) stream)
+  (print-python-class class stream))
+
+(defmethod print-object ((class python-class) stream)
+  (print-python-class class stream))
 
 (defmacro with-place-rebound ((place value) &body body &environment env)
   (multiple-value-bind (vars values storevars writer-form reader-form)

@@ -31,24 +31,30 @@ at any time if necessary.")
 ;;; exactly once per mirror, i.e., on initialization but not on
 ;;; reinitialization.
 
+(defmethod initialize-instance :before
+    ((python-object funcallable-python-object)
+     &key pyobject &allow-other-keys)
+  "Install a trivial instance function, so that the object is fully initialized
+before it is registered in the mirror-into-lisp table."
+  (set-funcallable-instance-function
+   python-object
+   (trivial-pycallable-instance-function-generator pyobject)))
+
 (defmethod initialize-instance :after
     ((python-object python-object)
      &key pyobject &allow-other-keys)
-  "For a supplied Python object, define a finalizer for it, register it in the
-mirror-into-lisp table, and set its funcallable instance function."
-  ;; Install a trivial instance function so that the object is fully
-  ;; initialized.
-  (set-funcallable-instance-function
-   python-object
-   (trivial-pycallable-instance-function-generator pyobject))
-  ;; Install the finalizer.
+  "For a supplied Python object, define a finalizer for it and register it in
+the mirror-into-lisp table."
   (register-python-object-finalizer pyobject python-object)
-  ;; Register the mirror before deriving the full instance function, because
-  ;; the derivers might also use the mirroring machinery.
   (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
-        python-object)
-  ;; Derive the actual instance function, which typically has a more
-  ;; descriptive lambda list than the trivial one.
+        python-object))
+
+(defmethod initialize-instance :after
+    ((python-object funcallable-python-object)
+     &key pyobject &allow-other-keys)
+  "Derive the actual instance function, which typically has a more descriptive
+lambda list than the trivial one.  This method runs after the mirror has been
+registered, because the derivers might also use the mirroring machinery."
   (set-funcallable-instance-function
    python-object
    (pycallable-instance-function pyobject)))
@@ -359,22 +365,56 @@ functions (including getattr)."
       (with-pyobjects ((pyname module-name))
         (|%PyImport_Import| pyname))))))
 
+;;; PYTHON:TYPE is abstract.  Each mirror of a Python class is an instance of
+;;; one of its two concrete subclasses, depending on whether the mirror
+;;; allocates plain or funcallable instances.  Mirrors of other Python
+;;; metaclasses are subclasses of FUNCALLABLE-TYPE.
+
 (ensure-class
  'python:type
  :metaclass (find-class 'python-class)
- :direct-superclasses (list (find-class 'python-class))
+ :direct-superclasses (list (find-class 'funcallable-python-object))
  :pyobject *type-pyobject*)
+
+(defmethod validate-superclass
+    ((class funcallable-standard-class)
+     (superclass python-class))
+  t)
+
+(defclass non-funcallable-type (python:type standard-class)
+  ()
+  (:metaclass funcallable-standard-class)
+  (:documentation
+   "The metaclass of mirrors of Python types whose instances can never become
+callable.  Their instances are plain objects."))
+
+(defclass funcallable-type (python:type funcallable-standard-class)
+  ()
+  (:metaclass funcallable-standard-class)
+  (:documentation
+   "The metaclass of mirrors of Python types whose instances are callable or might
+become callable later.  Their instances are funcallable objects."))
+
+(defmethod validate-superclass
+    ((class non-funcallable-type)
+     (superclass standard-class))
+  t)
+
+(defmethod validate-superclass
+    ((class funcallable-type)
+     (superclass class))
+  t)
 
 (ensure-class
  'python:object
- :metaclass (find-class 'python:type)
+ :metaclass (find-class 'non-funcallable-type)
  :direct-superclasses (list (find-class 'python-object))
  :pyobject *object-pyobject*)
 
 (ensure-class
  'python:none
- :metaclass (find-class 'python:type)
- :direct-superclasses (list (find-class 'python:type))
+ :metaclass (find-class 'non-funcallable-type)
+ :direct-superclasses (list (find-class 'python:object))
  :pyobject *none-pyobject*)
 
 (define-condition python:base-exception (python-exception)
@@ -386,10 +426,13 @@ functions (including getattr)."
 
 (defgeneric module-symbol-table (module))
 
+;; Modules are funcallable, because assigning a module's __class__ can make it
+;; callable.
 (ensure-class
  'python:module
- :metaclass (find-class 'python:type)
- :direct-superclasses (list (find-class 'python:object))
+ :metaclass (find-class 'funcallable-type)
+ :direct-superclasses (list (find-class 'python:object)
+                            (find-class 'funcallable-python-object))
  :pyobject *module-pyobject*
  :direct-slots
  `((:name %package
@@ -515,15 +558,62 @@ functions (including getattr)."
                (if (find-class lisp-name nil)
                    (error "Attempt to overwrite a mirror class: ~S"
                           lisp-name)
-                   (ensure-class
-                    lisp-name
-                    :metaclass class
-                    :direct-superclasses direct-superclasses
-                    :pyobject pyobject)))))
+                   (multiple-value-bind (metaclass direct-superclasses)
+                       (mirror-class-metaclass-and-superclasses
+                        pyobject class direct-superclasses)
+                     (ensure-class
+                      lisp-name
+                      :metaclass metaclass
+                      :direct-superclasses direct-superclasses
+                      :pyobject pyobject))))))
         ;; Instances
         (t
          (make-instance class
            :pyobject pyobject))))))
+
+(defun pytype-instances-funcallable-p (pytype)
+  "Returns whether instances of PYTYPE must be mirrored as funcallable objects.
+This is the case if PYTYPE defines __call__, or if its instances might become
+callable later: For a mutable type, __call__ can be added to the type or one
+of its bases at any time, and assigning a module's __class__ can make it
+callable.  This function doesn't consider the bases of PYTYPE."
+  (with-global-interpreter-lock-held
+    (or (not (logtest (|%PyType_GetFlags| pytype)
+                      (cffi:foreign-enum-value 'tpflags :immutabletype)))
+        (not (cffi:null-pointer-p (|%PyType_GetSlot| pytype :tp-call)))
+        (|%PyType_IsSubtype| pytype *module-pyobject*))))
+
+(defun mirror-class-metaclass-and-superclasses
+    (pytype python-metaclass direct-superclasses)
+  "Returns the metaclass and the direct superclasses of the mirror of PYTYPE,
+given the mirrors of its Python metaclass and of its bases.
+
+Only types whose Python metaclass is type get a plain mirror class, because
+all other metaclasses are mirrored as subclasses of FUNCALLABLE-TYPE."
+  (let ((type (find-class 'python:type))
+        (funcallable-python-object (find-class 'funcallable-python-object)))
+    (flet ((funcallable-class-p (class)
+             ;; SUBTYPEP doesn't accept classes that are funcallable instances
+             ;; as type specifiers, so we use their names instead.
+             (subtypep (class-name class) 'funcallable-python-object)))
+      (if (and (eq python-metaclass type)
+               (notany #'funcallable-class-p direct-superclasses)
+               (not (pytype-instances-funcallable-p pytype)))
+          (values (find-class 'non-funcallable-type)
+                  direct-superclasses)
+          (let ((direct-superclasses
+                  ;; The base type of Python metaclasses is mirrored as the
+                  ;; abstract PYTHON:TYPE, which can't be the superclass of a
+                  ;; metaclass.
+                  (substitute (find-class 'funcallable-type) type
+                              direct-superclasses)))
+            (values (if (eq python-metaclass type)
+                        (find-class 'funcallable-type)
+                        python-metaclass)
+                    (if (some #'funcallable-class-p direct-superclasses)
+                        direct-superclasses
+                        (append direct-superclasses
+                                (list funcallable-python-object)))))))))
 
 (defun pytype-defining-pymodule (pytype)
   "Returns the PyModule that defines the supplied PyType.  Returns

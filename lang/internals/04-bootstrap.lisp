@@ -1,20 +1,34 @@
 (in-package #:lang.internals)
 
-(defclass python-object (funcallable-standard-object)
+;;; Mirrors come in two kinds: plain objects and funcallable objects.  Plain
+;;; objects are much cheaper to allocate, but CLOS decides which kind a class
+;;; allocates by its metaclass, and a plain class can't have a funcallable
+;;; superclass.  A Python type therefore gets a plain mirror class only if its
+;;; instances can never become callable, i.e., if it is immutable, doesn't
+;;; define __call__, and all its bases are plain, too.  See also
+;;; NON-FUNCALLABLE-TYPE and FUNCALLABLE-TYPE.
+
+(defclass python-object (standard-object)
   ((%pyobject
     :initarg :pyobject
     :initform (alexandria:required-argument :pyobject)
     :type pyobject
     :reader python-object-pyobject))
-  (:metaclass funcallable-standard-class)
   (:documentation
    "An object of the Python programming language."))
 
-(defclass python-class (python-object funcallable-standard-class)
+(defclass funcallable-python-object (python-object funcallable-standard-object)
   ()
   (:metaclass funcallable-standard-class)
   (:documentation
-   "A class of the Python programming language."))
+   "A Python object whose mirror can be called like a Lisp function, because the
+object is callable or might become callable later."))
+
+(defclass python-class (funcallable-python-object funcallable-standard-class)
+  ()
+  (:metaclass funcallable-standard-class)
+  (:documentation
+   "The metaclass of PYTHON:TYPE, which mirrors Python's type."))
 
 ;; Unfortunately, CLOS doesn't allow condition metaclasses or conditions that
 ;; inherit from non-conditions.  We still translate Python exceptions to Lisp

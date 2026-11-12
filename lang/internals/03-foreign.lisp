@@ -230,6 +230,7 @@
       ;; Types
       ("PyType_IsSubtype" (pyobject pyobject) :bool)
       ("PyType_GetSlot" (pyobject typeslot) :pointer)
+      ("PyType_GetFlags" (pyobject) :unsigned-long)
       ("PyType_GetName" (pyobject) new-pyobject)
       ("PyType_GetQualName" (pyobject) new-pyobject)
       ("PyType_GetModuleName" (pyobject) new-pyobject)
