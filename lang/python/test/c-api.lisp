@@ -52,3 +52,60 @@
   ;; A borrowed result.
   (does-not-leak (list)
     (c-api:|PyTuple_GetItem| (python:tuple (vector list)) 0)))
+
+;;; Nested calls are merged into calls of the raw C API functions.
+
+(defmacro merged-p (form &environment env)
+  "Returns true if the compiler macro of FORM merges it in the current lexical
+environment."
+  (not (eq form (funcall (compiler-macro-function (first form)) form env))))
+
+(deftest c-api-merging
+  (is (merged-p (c-api:|PyNumber_Add| (c-api:|PyNumber_Multiply| a b) c)))
+  (is (merged-p (c-api:|PyObject_Repr| (c-api:|PyTuple_GetItem| tuple 0))))
+  ;; A call is only merged into an argument that is a PyObject.
+  (is (not (merged-p (c-api:|PyNumber_Add| a b))))
+  (is (not (merged-p (c-api:|PySequence_GetItem| a (c-api:|PyObject_Size| b)))))
+  ;; Calls with a NULL result can't be merged.
+  (is (not (merged-p (c-api:|PyObject_Repr| (c-api:|PyIter_Next| a)))))
+  ;; Local functions and NOTINLINE declarations prevent merging.
+  (flet ((c-api:|PyNumber_Multiply| (a b) (* a b)))
+    (is (not (merged-p (c-api:|PyNumber_Add| (c-api:|PyNumber_Multiply| a b) c)))))
+  (locally (declare (notinline c-api:|PyNumber_Multiply|))
+    (is (not (merged-p (c-api:|PyNumber_Add| (c-api:|PyNumber_Multiply| a b) c))))))
+
+(deftest c-api-merged-calls
+  (let ((two (internals:pythonize 2))
+        (three (internals:pythonize 3))
+        (four (internals:pythonize 4))
+        (log '()))
+    (is (= (internals:lispify
+            (c-api:|PyNumber_Add|
+             (c-api:|PyNumber_Multiply| (progn (push 1 log) two)
+                                        (progn (push 2 log) three))
+             (progn (push 3 log) four)))
+           10))
+    ;; Arguments are evaluated from left to right.
+    (is (equal log '(3 2 1)))
+    (is (string= (internals:lispify
+                  (c-api:|PyObject_Repr|
+                   (c-api:|PyTuple_GetItem| (python:tuple (vector two)) 0)))
+                 "2"))
+    (signals python:type-error
+      (c-api:|PyNumber_Add| (c-api:|PyNumber_Multiply| two three) (python:list #())))))
+
+(deftest c-api-merged-calls-do-not-leak
+  ;; A borrowed result.
+  (does-not-leak (list)
+    (c-api:|PyObject_Repr| (c-api:|PyTuple_GetItem| (python:tuple (vector list)) 0)))
+  ;; A borrowed result as a stolen argument.
+  (does-not-leak (list)
+    (c-api:|PyList_SetItem| (c-api:|PySequence_List| (python:tuple #(0))) 0
+                            (c-api:|PyTuple_GetItem| (python:tuple (vector list)) 0)))
+  ;; A Python exception in the outer call.
+  (does-not-leak (list)
+    (handler-case
+        (c-api:|PyObject_GetAttrString|
+         (c-api:|PyTuple_GetItem| (python:tuple (vector list)) 0)
+         "no_such_attribute")
+      (python:attribute-error () nil))))

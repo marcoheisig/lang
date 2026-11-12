@@ -59,7 +59,9 @@ and check results with `is` and `signals`.  To run tests from a REPL:
 Reference count tests run a full GC and its finalizers before comparing
 counts, because the Lisp mirror of a Python object owns a reference until it
 is finalized.  Probe with objects you create yourself: many builtin Python
-objects are immortal, and their reference counts never change.
+objects are immortal, and their reference counts never change.  The GC may
+keep the last temporary object of a loop alive, so `does-not-leak` takes its
+baseline after one warm-up iteration and then checks for growth.
 
 ## Code Map
 
@@ -80,7 +82,8 @@ The ASDF systems build on each other in this order:
   package `lang.python.c-api`; these operate on raw pointers and must be
   called with the GIL held.
 - `15-c-api.lisp`: the function `|C-NAME|` for most of these, which acquires
-  the GIL itself and takes and returns mirror objects.
+  the GIL itself and takes and returns mirror objects.  A compiler macro
+  merges nested calls, so that intermediate results are never mirrored.
 - `06-mirror-into-lisp.lisp`, `07-mirror-into-python.lisp`: creating the
   object in one language that stands for an object of the other.
 - `01-naming.lisp`: translating identifiers between the languages.

@@ -16,12 +16,19 @@
 
 (defmacro does-not-leak ((variable) &body body)
   "Signal a test failure if running BODY 1000 times, with VARIABLE bound to a
-fresh Python list, changes that list's reference count."
-  `(let* ((,variable (python:list #(1 2)))
-          (before (refcount ,variable)))
-     (loop repeat 1000 do (progn ,@body))
-     (collect-garbage)
-     (is (= (refcount ,variable) before))))
+fresh Python list, changes that list's reference count.
+
+The reference count is first measured after running BODY once, because the GC
+sometimes keeps the last temporary object of a loop alive, e.g., a list that
+contains VARIABLE.  This adds one reference regardless of the number of
+iterations, whereas a leak adds one per iteration."
+  `(let ((,variable (python:list #(1 2))))
+     (flet ((run (n)
+              (loop repeat n do (progn ,@body))
+              (collect-garbage)
+              (refcount ,variable)))
+       (let ((before (run 1)))
+         (is (= (run 1000) before))))))
 
 (deftest calls-do-not-leak
   (does-not-leak (list)

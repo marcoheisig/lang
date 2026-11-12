@@ -8,7 +8,8 @@
    "closer-mop"
    "lang"
    "trivial-package-local-nicknames"
-   "trivial-garbage")
+   "trivial-garbage"
+   (:require "sb-cltl2"))
 
   :serial t
   :components
