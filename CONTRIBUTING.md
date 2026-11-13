@@ -35,6 +35,15 @@ to do this in `~/.sbclrc`.  To check which interpreter you got:
 (lang.internals::expr "__import__('sys').version + ' | ' + __import__('sys').prefix")
 ```
 
+lang doesn't look for free-threaded builds (`libpython3.14t.so`), and it isn't
+safe there yet, because its mirror tables rely on the GIL.  To try one anyway,
+put a symlink named `libpython3.14.so` to it into a directory of
+`cffi:*foreign-library-directories*`.  Run Python code from a thread other
+than SBCL's main thread: with free-threaded Python 3.14.9, reference counts
+go wrong for Python code that runs on SBCL's main thread, even for plain
+Python code, while all other threads are fine.  The tests pass when run with
+`(sb-thread:join-thread (sb-thread:make-thread #'lang.python.test:run-tests))`.
+
 ## Tests
 
 ```sh
@@ -56,12 +65,19 @@ and check results with `is` and `signals`.  To run tests from a REPL:
 (lang.python.test:run-tests)
 ```
 
-Reference count tests run a full GC and its finalizers before comparing
-counts, because the Lisp mirror of a Python object owns a reference until it
-is finalized.  Probe with objects you create yourself: many builtin Python
-objects are immortal, and their reference counts never change.  The GC may
-keep the last temporary object of a loop alive, so `does-not-leak` takes its
-baseline after one warm-up iteration and then checks for growth.
+Reference count tests run a full GC and `release-dead-references` before
+comparing counts, because the Lisp mirror of a Python object owns a reference
+until it has been collected.  SBCL also calls `release-dead-references` after
+each GC, but in its finalizer thread, so that release isn't synchronous.
+Probe with objects you create yourself: many builtin Python objects are
+immortal, and their reference counts never change.  The GC may keep the last
+temporary object of a loop alive, so `does-not-leak` takes its baseline after
+one warm-up iteration and then checks for growth.
+
+The tests of `collect-garbage` check whether objects have been collected, but
+SBCL scans stacks conservatively, so a stale pointer on the stack can keep an
+object alive.  These tests create and inspect their objects in threads of
+their own, whose stacks are gone once they have finished.
 
 ## Code Map
 
@@ -88,6 +104,9 @@ The ASDF systems build on each other in this order:
   object in one language that stands for an object of the other.
 - `01-naming.lisp`: translating identifiers between the languages.
 - `12-convert.lisp`, `13-lispify.lisp`, `14-pythonize.lisp`: value conversion.
+- `16-garbage-collection.lisp`: `collect-garbage`, which also reclaims cycles
+  that cross the language boundary.  The comment at the top of the file
+  describes the algorithm.
 - `10-lambda-lists.lisp` is currently disabled (`#+(or)` in the `.asd`).  It is
   the only user of the `typeshed_client` Python dependency.
 
@@ -109,6 +128,14 @@ changes that break them need a discussion first.
   metaclass of all mirrored Lisp classes, which lives forever.
 - **Every mirror is finalizable.**  All types that mirror Lisp classes are
   instances of `LispType`, so finalization can remove their table entries.
+- **Each Lisp mirror owns exactly one reference** to its Python object, unless
+  that object is immortal, and records it with `register-owned-reference`.
+  Instead of a finalizer per mirror, `release-dead-references` releases the
+  references of all collected mirrors under a single acquisition of the GIL
+  after each GC.  `collect-garbage` subtracts one reference per entry of that
+  registry to find out which Python objects only Lisp keeps alive, so a
+  registered reference that isn't owned would make a live object look like
+  garbage.
 - **Lookup and incref are atomic** under the GIL.
 - **Reference ownership is explicit.**  C API declarations in `03-foreign.lisp`
   use the types `pyobject` (borrowed argument), `stolen-pyobject`,
@@ -116,6 +143,15 @@ changes that break them need a discussion first.
   `with-new-pyobjects` / `with-pyobjects` for temporaries so that references
   are released on every exit.
 
-Known gap: cycles that cross the language boundary (Lisp → Python → Lisp)
-leak.  A cross-heap collector is planned; see "Cross-language Garbage
-Collection" in the README.
+Cycles that cross the language boundary (Lisp → Python → Lisp) are only
+reclaimed when someone calls `collect-garbage`.  A Python mirror whose Lisp
+object it has collected is a zombie until Python frees it, which normally
+happens before `collect-garbage` releases the GIL.  Only Python code that runs
+while this garbage is being freed, such as a `__del__` method, can reach a
+zombie, and mirroring a zombie into Lisp signals a `zombie-mirror-error`.
+
+In free-threaded builds (Python 3.14t or later), `collect-garbage` pauses all
+other Python threads with CPython's private `_PyEval_StopTheWorld`, and it only
+analyzes the part of the Python heap that is reachable from Lisp.  Other
+threads run again before Python frees the garbage, so there a weak reference
+can lead them to a zombie.

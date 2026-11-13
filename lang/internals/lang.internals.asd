@@ -30,4 +30,5 @@
    (:file "12-convert")
    (:file "13-lispify")
    (:file "14-pythonize")
-   (:file "15-c-api")))
+   (:file "15-c-api")
+   (:file "16-garbage-collection")))

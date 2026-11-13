@@ -3,9 +3,8 @@
 (defgeneric mirror-into-lisp (pyobject)
   (:documentation
    "Returns a Lisp object that encapsulates the supplied borrowed reference to a
-Python object.  Adds a finalizer to the Lisp object that decrements the
-reference count of the Python object by one once the Lisp object is garbage
-collected."))
+Python object.  The Lisp object owns a reference to the Python object, which
+is released once the Lisp object has been garbage collected."))
 
 (defgeneric move-into-lisp (pyobject)
   (:documentation

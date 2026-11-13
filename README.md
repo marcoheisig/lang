@@ -204,36 +204,24 @@ to Lisp on the fly.
 
 ### Cross-language Garbage Collection
 
-Right now there is no mechanism to collect circular structures that cross
-language boundaries more than once.  One algorithm that could address this is
-the following:
+Neither garbage collector can reclaim a cycle that crosses the language
+boundary, such as a Lisp object that references a Python list that contains
+the Lisp object.  `lang.internals:collect-garbage` reclaims such cycles.  It
+determines which Python objects are only kept alive by Lisp, describes that
+part of the Python heap to SBCL as ephemerons, and lets a full SBCL GC decide.
+It has to be called explicitly, and it stops the world for a full collection
+in both languages.  What's left to do:
 
-Maintain a work list whose entries are pairs of programming languages and sets
-of reachable mirror objects.
-
-1. For each programming language, push the pair of that language and the empty
-   set onto the work list.
-
-2. Pop one language and its set of reachable mirror objects from the work list.
-
-3. Starting from those mirror objects that are reachable, as well as all the
-   usual GC roots, mark all reachable objects of that language.
-
-4. Determine the sets mirror objects that haven't been reachable before, but
-   that are reachable now.  Update the reachable object sets of all languages
-   accordingly.
-
-5. Push every language whose set of reachable mirror objects has changed back
-   onto the work list.  Go to 2.
-
-Once this algorithm terminates, destroy all mirror objects that are globally
-unreachable.
-
-The main challenge here is to hack each language's memory management to allow
-for this kind of reachability analysis with dynamically changing roots.
-Ideally, the analysis should also be incremental, such that marking stops
-whenever it reaches an object that has already been marked in a previous step
-of the same cross-language GC macro cycle.
+- Run it automatically, e.g., after every few full SBCL GCs, or when many
+  mirrors have been created since the last run.
+- Make lang safe on free-threaded Python builds.  `collect-garbage` already
+  works with Python 3.14t, but the mirror tables still rely on the GIL, and
+  reference counts go wrong for Python code that runs on SBCL's main thread.
+- Make the heap walk faster.  It takes about 0.2 seconds per million Python
+  objects, four times as long as Python's own `gc.collect()`, and most of that
+  time goes into hash table lookups.
+- Support more than two languages, e.g., by describing the heaps of all other
+  languages to SBCL.
 
 ### New Language: APL
 

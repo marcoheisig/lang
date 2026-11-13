@@ -7,7 +7,8 @@ world.
 
 Each mirror object must have a finalizer attached that deletes its entry in
 this table so that the garbage collector may eventually clean up the Lisp
-object.")
+object.  COLLECT-GARBAGE temporarily removes the entries of mirrors that are
+only reachable from Lisp.")
 
 ;;; Condition classes can't be mirrored into Python by creating a new type,
 ;;; so we register them with their existing Python exception type instead.
@@ -88,6 +89,8 @@ vice versa.  Consumes one strong reference to PYTYPE."
 (cffi:defcallback __finalize__ :void
     ((pyobject pyobject))
   (let ((address (pyobject-address pyobject)))
+    ;; The Lisp object of a zombie is gone, and so are its other entries.
+    (remhash address *zombie-mirror-table*)
     (multiple-value-bind (lisp-object presentp)
         (gethash address *mirror-into-lisp-table*)
       #+(or)

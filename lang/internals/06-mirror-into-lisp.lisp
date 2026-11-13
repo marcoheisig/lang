@@ -5,11 +5,26 @@
   "A hash table mapping from integers that are PyObject addresses to the
 corresponding Lisp objects.
 
-Each Lisp object must have a finalizer that decreases the reference count of
-its corresponding PyObject.
+Each Lisp object owns one reference to its PyObject, which it registers with
+REGISTER-OWNED-REFERENCE.
 
 Use weak references for the values, because we can recreate them
 at any time if necessary.")
+
+(defvar *zombie-mirror-table*
+  (make-hash-table :synchronized t)
+  "A hash table whose keys are the addresses of zombies: Python mirrors of Lisp
+objects that have been garbage collected.  COLLECT-GARBAGE adds the entries,
+and the __finalize__ callback of each zombie removes its entry.")
+
+(define-condition zombie-mirror-error (error)
+  ((%address :initarg :address :reader zombie-mirror-error-address))
+  (:report
+   (lambda (condition stream)
+     (format stream "The Python object at #x~X stands for a Lisp object that ~
+                     has been garbage collected.  This can happen when Python ~
+                     code accesses garbage, e.g., in a __del__ method."
+             (zombie-mirror-error-address condition)))))
 
 (defmethod move-into-lisp (pyobject)
   (multiple-value-bind (value presentp)
@@ -43,9 +58,9 @@ before it is registered in the mirror-into-lisp table."
 (defmethod initialize-instance :after
     ((python-object python-object)
      &key pyobject &allow-other-keys)
-  "For a supplied Python object, define a finalizer for it and register it in
-the mirror-into-lisp table."
-  (register-python-object-finalizer pyobject python-object)
+  "Register the reference to the supplied Python object that PYTHON-OBJECT owns,
+and register PYTHON-OBJECT in the mirror-into-lisp table."
+  (register-owned-reference pyobject python-object)
   (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
         python-object))
 
@@ -121,23 +136,109 @@ pycallables share a lambda list, so we compile once per lambda list.")
 (defmethod initialize-instance :after
     ((python-exception python-exception)
      &key pyobject &allow-other-keys)
-  "For a supplied Python exception, define a finalizer for it and register it
-in the mirror-into-lisp table."
-  (register-python-object-finalizer pyobject python-exception)
+  "Register the reference to the supplied Python exception that PYTHON-EXCEPTION
+owns, and register PYTHON-EXCEPTION in the mirror-into-lisp table."
+  (register-owned-reference pyobject python-exception)
   (setf (gethash (pyobject-address pyobject) *mirror-into-lisp-table*)
         python-exception))
 
-(defun register-python-object-finalizer (pyobject python-object)
-  (trivial-garbage:finalize
-   python-object
-   (lambda ()
-     (with-global-interpreter-lock-held
-       #+(or)
-       (format *trace-output* "~&(Lisp) Finalizing ~S.~%"
-               (let ((pyrepr (|%PyObject_Repr| pyobject)))
-                 (unwind-protect (string-from-pyobject pyrepr)
-                   (|%Py_DecRef| pyrepr))))
-       (|%Py_DecRef| pyobject)))))
+;;; Owned References
+;;;
+;;; Each Lisp mirror owns one reference to its Python object, which is
+;;; released once the mirror has been garbage collected.  Instead of giving
+;;; each mirror a finalizer, which is expensive to register and needs the
+;;; global interpreter lock once per mirror, we keep a weak pointer to each
+;;; mirror and release the references of all dead mirrors at once after each
+;;; GC.  The registry has a lock of its own, because free-threaded Python
+;;; builds have no global interpreter lock that would protect it.
+
+(sb-ext:defglobal **owned-reference-lock**
+    (sb-thread:make-mutex :name "lang owned references")
+  "The lock that protects the registry of owned references.  Code that holds
+it must not run Python code, because that may create new mirrors.")
+
+(sb-ext:defglobal **owned-reference-count** 0
+  "The number of entries in the registry of owned references.")
+
+(sb-ext:defglobal **owned-reference-addresses**
+    (make-array 1024 :element-type '(unsigned-byte 64))
+  "The address of the Python object of each entry in the registry.")
+
+(sb-ext:defglobal **owned-reference-owners**
+    (make-array 1024 :initial-element nil)
+  "A weak pointer to the Lisp object that owns each entry in the registry.")
+
+(declaim (type (and fixnum unsigned-byte) **owned-reference-count**)
+         (type (simple-array (unsigned-byte 64) (*)) **owned-reference-addresses**)
+         (type simple-vector **owned-reference-owners**))
+
+(defmacro with-owned-references-locked (&body body)
+  `(sb-thread:with-mutex (**owned-reference-lock**)
+     ,@body))
+
+(defun register-owned-reference (pyobject owner)
+  "Record that OWNER owns one reference to PYOBJECT, which is released once
+OWNER has been garbage collected."
+  (let ((address (pyobject-address pyobject))
+        (weak-pointer (sb-ext:make-weak-pointer owner)))
+    (with-owned-references-locked
+      (let ((index **owned-reference-count**))
+        (when (= index (length **owned-reference-owners**))
+          (setf **owned-reference-addresses**
+                (replace (make-array (* 2 index) :element-type '(unsigned-byte 64))
+                         **owned-reference-addresses**))
+          (setf **owned-reference-owners**
+                (replace (make-array (* 2 index) :initial-element nil)
+                         **owned-reference-owners**)))
+        (setf (aref **owned-reference-addresses** index) address)
+        (setf (svref **owned-reference-owners** index) weak-pointer)
+        (setf **owned-reference-count** (1+ index))))
+    owner))
+
+(defun remove-dead-references ()
+  "Remove each owned reference whose owner has been garbage collected from the
+registry, and return a list of their addresses."
+  (with-owned-references-locked
+    (let ((addresses **owned-reference-addresses**)
+          (owners **owned-reference-owners**)
+          (count **owned-reference-count**)
+          (end 0)
+          (dead '()))
+      (declare (type (and fixnum unsigned-byte) count end))
+      (dotimes (index count)
+        (let ((owner (svref owners index)))
+          (if (nth-value 1 (sb-ext:weak-pointer-value owner))
+              (progn (setf (aref addresses end) (aref addresses index))
+                     (setf (svref owners end) owner)
+                     (incf end))
+              (push (aref addresses index) dead))))
+      (fill owners nil :start end :end count)
+      (setf **owned-reference-count** end)
+      dead)))
+
+(sb-ext:defglobal **release-lock**
+    (sb-thread:make-mutex :name "lang release dead references")
+  "The lock that RELEASE-DEAD-REFERENCES holds while it releases references,
+so that each call returns only after all references whose owners were dead
+when it started have been released, even if another thread found them.")
+
+(defun release-dead-references ()
+  "Release each owned reference whose owner has been garbage collected, and
+return the number of released references."
+  (with-global-interpreter-lock-held
+    ;; The lock is recursive, because releasing a reference may run Python
+    ;; code, which may call this function again.
+    (sb-thread:with-recursive-lock (**release-lock**)
+      ;; We release the references after updating the registry, because
+      ;; releasing a reference may run Python code, which may create new
+      ;; mirrors.
+      (let ((dead (remove-dead-references)))
+        (dolist (address dead)
+          (|%Py_DecRef| (cffi:make-pointer address)))
+        (length dead)))))
+
+;;; SBCL runs these hooks in its finalizer thread after each GC.
+(pushnew 'release-dead-references sb-ext:*after-gc-hooks*)
 
 (defstruct (kwarg
             (:constructor kwarg (key value &aux (key (pythonize-string key))))
@@ -500,9 +601,17 @@ become callable later.  Their instances are funcallable objects."))
         (remhash key *mirror-into-lisp-table*)))))
 
 (defun make-mirror-object (reference-type pyobject)
+  ;; A zombie must not get a mirror, because it isn't a Python object in its
+  ;; own right but stands for a Lisp object that is gone.
+  (when (and (plusp (hash-table-count *zombie-mirror-table*))
+             (gethash (pyobject-address pyobject) *zombie-mirror-table*))
+    (when (eq reference-type :strong-reference)
+      (with-global-interpreter-lock-held
+        (|%Py_DecRef| pyobject)))
+    (error 'zombie-mirror-error :address (pyobject-address pyobject)))
   (with-global-interpreter-lock-held
-    ;; Acquire a strong reference that is released by the finalizer of the
-    ;; resulting mirror object.
+    ;; Acquire a strong reference that is released once the resulting mirror
+    ;; object has been garbage collected.
     (ecase reference-type
       (:strong-reference)
       (:borrowed-reference

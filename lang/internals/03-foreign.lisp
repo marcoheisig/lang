@@ -171,12 +171,19 @@
       ("PyEval_SaveThread" () :pointer)
       ("PyEval_RestoreThread" (:pointer) :void)
       ("PyThreadState_Get" () :pointer)
+      ("PyInterpreterState_Get" () :pointer)
       ("PyEval_EvalCode" (pyobject pyobject pyobject) new-pyobject)
       ("Py_CompileString" (:string :string :int) new-pyobject)
       ;; Reference Counting
       ("Py_IncRef" (pyobject) :void)
       ("Py_DecRef" (pyobject-or-null) :void)
       ("Py_NewRef" (pyobject) new-pyobject)
+      ;; Garbage Collection.  PyObject_IS_GC takes an address instead of a
+      ;; PyObject, because COLLECT-GARBAGE calls it for every object on the
+      ;; Python heap, without owning a reference to any of them.
+      ("PyObject_IS_GC" (:uintptr) :bool)
+      ("PyUnstable_GC_VisitObjects" (:pointer :pointer) :void)
+      ("PyGC_Collect" () :ssize)
       ;; Errors and Exceptions
       ("PyErr_Clear" () :void)
       ("PyErr_Print" () :void)

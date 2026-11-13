@@ -6,10 +6,10 @@
 ;;; their reference counts never change.
 
 (defun collect-garbage ()
-  "Run a full GC and the finalizers it scheduled, which release references."
+  "Run a full GC and release the references of the mirrors it collected."
   (loop repeat 3 do
     (sb-ext:gc :full t)
-    (sb-impl::run-pending-finalizers)))
+    (internals::release-dead-references)))
 
 (defun refcount (object)
   (internals::pyobject-refcount (internals::python-object-pyobject object)))

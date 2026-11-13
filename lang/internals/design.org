@@ -65,20 +65,17 @@ blessed language that has to be loaded regardless.
 
 ** Garbage Collection
 
-The goal is to assign mark each cross-language reference as either white or
-black, in such a way that all black objects can safely be collected.  To do so,
-mark all cross-language references as black, and put all languages with
-outgoing cross-language references into the worklist W.
+Each mirror owns its target, so a cycle that crosses the language boundary
+keeps itself alive, and neither language's collector can reclaim it on its own.
 
-While there are elements in the worklist, set L = pop(W) and perform the
-following steps:
+Instead of alternating between the collectors of all languages until no more
+cross-language references become reachable, we let one collector decide: SBCL
+receives a summary of the part of the Python heap that is only kept alive by
+Lisp, in the form of ephemerons, and then runs a full GC.  Python can't tell
+which of its objects are roots, so the summary is computed like CPython's
+cycle collector does it, from reference counts and the references that
+traversal reveals.  See 16-garbage-collection.lisp.
 
-1. Mark all L objects that are reachable from any roots in L as white.
-   Incoming cross-language references are only considered as roots when they
-   are white.
-
-2. If any outgoing cross-language references have changed from black to white,
-   add the target languages back to the worklist.
-
-Once the worklist is empty, delete all cross-language references that are still
-black.
+The closest prior work is the Refgraph GC of Yamazaki et al. (PLDI 2023), the
+GC bridge between Mono and Java on Android, and the cycle collection of
+GraalPy for C extensions.

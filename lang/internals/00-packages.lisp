@@ -280,5 +280,8 @@
      #:pythonize
      #:pythonize-once
      #:pythonize-tree
-     #:pythonize-graph)))
+     #:pythonize-graph
+     ;; 16-garbage-collection.lisp
+     #:collect-garbage
+     #:zombie-mirror-error)))
 

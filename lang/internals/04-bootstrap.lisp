@@ -162,11 +162,19 @@ the PyObject's refcount."
     (8 #xffffffff)
     (4 #x3fffffff)))
 
+(defparameter *py-refcnt-function*
+  (cffi:foreign-symbol-pointer "Py_REFCNT")
+  "A pointer to the function Py_REFCNT, which Python exports since version
+3.14, or NIL.  Free-threaded builds split each reference count into several
+fields, so we need it there.")
+
 (declaim (inline pyobject-refcount pyobject-fast-incref pyobject-fast-decref))
 
 (defun pyobject-refcount (pyobject)
   (declare (cffi:foreign-pointer pyobject))
-  (cffi:mem-ref pyobject :size +pyobject-refcount-offset+))
+  (if *py-refcnt-function*
+      (cffi:foreign-funcall-pointer *py-refcnt-function* () :pointer pyobject :ssize)
+      (cffi:mem-ref pyobject :size +pyobject-refcount-offset+)))
 
 (defun pyobject-fast-incref (pyobject)
   (declare (cffi:foreign-pointer pyobject))
