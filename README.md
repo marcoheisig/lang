@@ -215,8 +215,7 @@ in both languages.  What's left to do:
 - Run it automatically, e.g., after every few full SBCL GCs, or when many
   mirrors have been created since the last run.
 - Make lang safe on free-threaded Python builds.  `collect-garbage` already
-  works with Python 3.14t, but the mirror tables still rely on the GIL, and
-  reference counts go wrong for Python code that runs on SBCL's main thread.
+  works with Python 3.14t, but the mirror tables still rely on the GIL.
 - Make the heap walk faster.  It takes about 0.2 seconds per million Python
   objects, four times as long as Python's own `gc.collect()`, and most of that
   time goes into hash table lookups.

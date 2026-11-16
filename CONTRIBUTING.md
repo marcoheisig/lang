@@ -38,11 +38,22 @@ to do this in `~/.sbclrc`.  To check which interpreter you got:
 lang doesn't look for free-threaded builds (`libpython3.14t.so`), and it isn't
 safe there yet, because its mirror tables rely on the GIL.  To try one anyway,
 put a symlink named `libpython3.14.so` to it into a directory of
-`cffi:*foreign-library-directories*`.  Run Python code from a thread other
-than SBCL's main thread: with free-threaded Python 3.14.9, reference counts
-go wrong for Python code that runs on SBCL's main thread, even for plain
-Python code, while all other threads are fine.  The tests pass when run with
-`(sb-thread:join-thread (sb-thread:make-thread #'lang.python.test:run-tests))`.
+`cffi:*foreign-library-directories*`.  Some constants are computed at compile
+time, so give each Python version its own fasl directory, e.g., with
+`asdf:initialize-output-translations`.
+
+Python 3.14 and later check for C stack overflows by comparing the stack
+pointer with the bounds that `pthread_getattr_np` reports for the current
+thread.  On x86-64 Linux, SBCL runs its main thread on a control stack that it
+allocates itself, so these bounds are wrong there: Python 3.14.0 aborts with
+"Unrecoverable stack overflow", and later versions corrupt reference counts.
+lang therefore passes SBCL's control stack bounds to
+`PyUnstable_ThreadState_SetStackProtection` (new in Python 3.14.1) whenever
+it acquires the global interpreter lock.  With Python 3.14.0, which lacks that
+function, lang signals an error when Python is called from SBCL's main thread,
+including when lang is loaded there; load and use it from another thread
+instead.  uv's Python 3.14.0 also needs `PYTHONHOME` set to its installation
+directory, or it fails with "Failed to import encodings module".
 
 ## Tests
 

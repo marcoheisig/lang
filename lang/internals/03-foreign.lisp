@@ -389,8 +389,106 @@
            (ldb (byte 8 24) hexversion)
            (ldb (byte 8 16) hexversion))))
 
+;;; C Stack Protection
+;;;
+;;; Since version 3.14, Python protects itself against C stack overflows by
+;;; comparing the stack pointer with the bounds of the current thread's stack,
+;;; which it obtains from pthread_getattr_np.  But on x86-64 Linux, SBCL runs
+;;; its main thread on a control stack that it allocates itself, so the stack
+;;; pointer is nowhere near the bounds reported by pthread_getattr_np.  Python
+;;; 3.14.0 then aborts with "Unrecoverable stack overflow", and later versions
+;;; corrupt reference counts.  Python 3.14.1 and later let us supply the
+;;; correct bounds via PyUnstable_ThreadState_SetStackProtection, which we do
+;;; whenever Lisp attaches a Python thread state.
+
+(defparameter *python-checks-stack-bounds*
+  (>= (cffi:mem-ref (cffi:foreign-symbol-pointer "Py_Version") :unsigned-long)
+      #x030E0000))
+
+(defparameter *set-stack-protection-pointer*
+  (cffi:foreign-symbol-pointer "PyUnstable_ThreadState_SetStackProtection"))
+
+(defun control-stack-bounds ()
+  "Return the start and end address of the current thread's control stack,
+excluding SBCL's guard pages at its low end."
+  (let ((start (sb-kernel:get-lisp-obj-address sb-vm:*control-stack-start*))
+        (end (sb-kernel:get-lisp-obj-address sb-vm:*control-stack-end*))
+        ;; SBCL places a hard guard page, a guard page, and a return guard
+        ;; page at the low end of each control stack.
+        (guard-size (* 3 (sb-alien:extern-alien "os_vm_page_size" sb-alien:unsigned-long))))
+    (values (+ start guard-size) end)))
+
+(defun pthread-stack-bounds ()
+  "Return the start and end address of the current thread's stack as reported
+by pthread_getattr_np, or NIL if that information isn't available."
+  #+linux
+  (cffi:with-foreign-objects ((attr :char 256) (addr :pointer) (size :size))
+    (when (zerop (cffi:foreign-funcall "pthread_getattr_np"
+                                       :pointer (cffi:foreign-funcall "pthread_self" :pointer)
+                                       :pointer attr
+                                       :int))
+      (unwind-protect
+           (when (zerop (cffi:foreign-funcall "pthread_attr_getstack"
+                                              :pointer attr :pointer addr :pointer size
+                                              :int))
+             (let ((start (cffi:pointer-address (cffi:mem-ref addr :pointer))))
+               (values start (+ start (cffi:mem-ref size :size)))))
+        (cffi:foreign-funcall "pthread_attr_destroy" :pointer attr :int))))
+  #-linux
+  nil)
+
+(defun python-sees-wrong-stack-p ()
+  "Return true if Python would get the bounds of the current thread's stack
+wrong, i.e., if pthread_getattr_np reports bounds that don't contain SBCL's
+control stack."
+  (multiple-value-bind (pthread-start pthread-end) (pthread-stack-bounds)
+    (multiple-value-bind (start end) (control-stack-bounds)
+      (and pthread-start
+           (not (<= pthread-start start end pthread-end))))))
+
+;; Only SBCL's main thread runs on a stack that SBCL allocates itself, and
+;; checking it is costly, because pthread_getattr_np reads /proc/self/maps for
+;; the main thread.  So we check once, the first time it is needed.
+(sb-ext:defglobal **main-thread-stack-unprotectable** :unknown)
+
+(defun ensure-python-can-run-in-this-thread ()
+  "Signal an error if Python code can't run safely in the current thread,
+because this Python version doesn't let us correct the stack bounds that it
+gets wrong for this thread."
+  (when (and *python-checks-stack-bounds*
+             (not *set-stack-protection-pointer*)
+             (sb-thread:main-thread-p))
+    (when (eq **main-thread-stack-unprotectable** :unknown)
+      (setf **main-thread-stack-unprotectable** (python-sees-wrong-stack-p)))
+    (when **main-thread-stack-unprotectable**
+      (error "~@<Python ~A can't run in SBCL's main thread, because it gets ~
+              the bounds of that thread's stack wrong and provides no way to ~
+              correct them.  Use Python 3.13 or Python 3.14.1 or later, or ~
+              call Python from another thread.~:@>"
+             (let ((hexversion (cffi:mem-ref (cffi:foreign-symbol-pointer "Py_Version")
+                                             :unsigned-long)))
+               (format nil "~D.~D.~D"
+                       (ldb (byte 8 24) hexversion)
+                       (ldb (byte 8 16) hexversion)
+                       (ldb (byte 8 8) hexversion)))))))
+
+(defun protect-python-stack ()
+  "Tell Python the correct bounds of the current thread's stack.  Must be
+called while holding the global interpreter lock."
+  (when *set-stack-protection-pointer*
+    (multiple-value-bind (start end) (control-stack-bounds)
+      (unless (zerop (cffi:foreign-funcall-pointer
+                      *set-stack-protection-pointer* ()
+                      :pointer (|%PyThreadState_Get|)
+                      :pointer (cffi:make-pointer start)
+                      :size (- end start)
+                      :int))
+        (|%PyErr_Clear|)
+        (error "Failed to tell Python the bounds of the current thread's stack.")))))
+
 ;; Initialize Python if it isn't already initialized.
 (unless (|%Py_IsInitialized|)
+  (ensure-python-can-run-in-this-thread)
   (|%Py_InitializeEx| nil))
 
 ;; If this thread holds the global interpreter lock, e.g., because it just
@@ -419,11 +517,17 @@
     ;; creating one if necessary.  This matters because SBCL runs finalizers
     ;; in a thread of their own, and because SLIME evaluates in worker threads.
     (t
+     (ensure-python-can-run-in-this-thread)
      (let ((*global-interpreter-lock-held* t))
        ;; Mask floating point traps while interacting with Python code.
        (sb-int:with-float-traps-masked (:underflow :overflow :inexact :invalid :divide-by-zero)
          (let ((gil-state (|%PyGILState_Ensure|)))
-           (unwind-protect (funcall thunk)
+           (unwind-protect
+                (progn
+                  ;; PyGILState_Ensure may have created a new thread state,
+                  ;; so we set the stack bounds each time.
+                  (protect-python-stack)
+                  (funcall thunk))
              (|%PyGILState_Release| gil-state))))))))
 
 (defmacro with-global-interpreter-lock-held (&body body)
